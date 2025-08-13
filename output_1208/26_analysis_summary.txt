@@ -1,0 +1,26 @@
+Analysis Summary for Subject 26
+============================================================
+Target Channels: ['VREF']
+Frequency Range: 13-16 Hz
+Total Spindles Detected: 845
+Total N2 Bouts Found: 6
+Successfully Analyzed Bouts: 4
+Failed Bouts: 2
+
+Per-Bout Analysis:
+Bout  Duration    Peak Freq   Peak Power  Area      
+------------------------------------------------------------
+0     295.4       0.007       2.586       0.007     
+1     744.1       0.010       3.678       0.025     
+4     765.0       0.008       3.559       0.023     
+5     505.0       0.021       1.309       0.036     
+
+Summary Statistics:
+Average bout duration: 577.4s (±192.2)
+Average peak frequency: 0.011Hz (±0.005)
+Average peak power: 2.783 (±0.951)
+
+Analysis Errors:
+------------------------------------------------------------
+Bout 2 (13595.6-15209.9s): RuntimeError - Optimal parameters not found: Number of calls to function has reached maxfev = 800.
+Bout 3 (15693.0-16687.0s): RuntimeError - Optimal parameters not found: Number of calls to function has reached maxfev = 800.
