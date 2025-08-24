@@ -4,21 +4,22 @@ Target Channels: ['VREF']
 Frequency Range: 13-16 Hz
 Total Spindles Detected: 845
 Total N2 Bouts Found: 6
-Successfully Analyzed Bouts: 4
 Failed Bouts: 2
 
 Per-Bout Analysis:
-Bout  Duration    Peak Freq   Peak Power  Area      
+Bout  Duration    Peak Freq   Bandwidth   AUC       
 ------------------------------------------------------------
-0     295.4       0.007       2.586       0.007     
-1     744.1       0.010       3.678       0.025     
-4     765.0       0.008       3.559       0.023     
-5     505.0       0.021       1.309       0.036     
+0.0   295.4       0.007       0.003       0.031     
+1.0   744.1       0.010       0.008       0.042     
+4.0   765.0       0.008       0.008       0.034     
+5.0   505.0       0.021       0.033       0.064     
 
 Summary Statistics:
-Average bout duration: 577.4s (±192.2)
-Average peak frequency: 0.011Hz (±0.005)
-Average peak power: 2.783 (±0.951)
+------------------------------------------------------------
+Average bout duration: 577.4s (±221.9)
+Average peak frequency: 0.011Hz (±0.006)
+Average bandwidth: 0.013Hz (±0.013)
+Average AUC: 0.043 (±0.015)
 
 Analysis Errors:
 ------------------------------------------------------------

@@ -1,11 +1,14 @@
 import mne
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import yasa
 from scipy.signal import hilbert
 from scipy.optimize import curve_fit
 from scipy.integrate import simpson
+from scipy.interpolate import interp1d
 from pathlib import Path
+import textwrap
 
 mne.set_log_level("error")
 mne.viz.set_browser_backend('qt')
@@ -34,37 +37,42 @@ class BoutInfo:
 
 class SpindleAnalyzer:
     def __init__(self, subject_id, raw_path, low_freq=13, high_freq=16, target_channels=['VREF'], 
-                output_dir="output", min_duration=280):
+                output_dir=None, min_duration=280):
         self.subject_id = subject_id
         self.low_freq = low_freq
         self.high_freq = high_freq
         self.target_channels = target_channels
-        self.output_dir = output_dir
+        self.output_dir = output_dir if output_dir else f"{subject_id}_output"
+        Path(self.output_dir).mkdir(parents=True, exist_ok=True)
         self.raw_path = raw_path
         self.min_duration = min_duration
         
         self.target_raw = None
         self.spindles_df = None
         self.n2_bouts = []
-        self.bout_results = []
         self.bout_errors = {}
+        self.results_df = None
         
+        # For relative spectral power computation
+        self._frequencies = []
+        self._all_power_spectra = []
+
     def load_raw_data(self):
         raw_data = mne.io.read_raw(self.raw_path)
-        annotation_descriptions = set(raw_data.annotations.description)
-        if "NREM2" not in annotation_descriptions:
+        annotation_desc = set(raw_data.annotations.description)
+        if "NREM2" not in annotation_desc:
             print(f"ERROR: No 'NREM2' annotations found in the data.")
-            print(f"Available annotations: {annotation_descriptions}")
+            print(f"Available annotations: {annotation_desc}")
             exit(1)
         
-        if "BAD" not in annotation_descriptions:
+        if "BAD" not in annotation_desc:
             print("WARNING: No 'BAD' annotations found in the data.")
-            print(f"Available annotations: {annotation_descriptions}")
+            print(f"Available annotations: {annotation_desc}")
         
         self.target_raw = raw_data.pick_channels(self.target_channels)
         self.target_raw.load_data()
 
-    def detect_spindles(self):
+    def detect_spindles(self, plot_raw=False):
         if self.target_raw is None:
             self.load_raw_data()
             
@@ -78,8 +86,9 @@ class SpindleAnalyzer:
         )
         annotations = self.target_raw.annotations + spindle_annotations
         self.target_raw.set_annotations(annotations)
-        # self.target_raw.plot()
-    
+        if plot_raw:
+            self.target_raw.plot()
+
     def _extract_valid_segments(self, n2_start, n2_end, bad_segments):
         """Extract valid segments from an N2 period, excluding BAD overlaps, and create BoutInfo objects."""
         if len(bad_segments) == 0:
@@ -118,16 +127,18 @@ class SpindleAnalyzer:
             overlapping_bads = bad_segments[overlaps]
             self._extract_valid_segments(n2_start, n2_end, overlapping_bads)
         
-        print(f"Found {len(self.n2_bouts)} valid N2 bouts (>= {self.min_duration}s)")
         print("")
+        print(f"Found {len(self.n2_bouts)} valid N2 bouts (>= {self.min_duration}s)")
 
     @staticmethod
     def compute_envelope(data):
         """
-        Compute amplitude envelope using Hilbert transform.
+        Compute amplitude envelope using Hilbert transform and recenter around 0.
         """
         analytic_signal = hilbert(data)
-        return np.abs(analytic_signal)
+        amplitude_envelope = np.abs(analytic_signal)
+        amplitude_envelope = amplitude_envelope - np.mean(amplitude_envelope)
+        return amplitude_envelope
     
     def plot_sigma_envelope(self, times, data, amplitude_envelope, start_time, duration):
         spindle_mask = (self.spindles_df['Start'] >= start_time) & (self.spindles_df['Start'] <= start_time + duration)
@@ -165,10 +176,10 @@ class SpindleAnalyzer:
     
     def compute_fft_power_spectrum(self, amplitude_envelope, min_freq=0, max_freq=0.1):
         """
-        Compute FFT power spectrum of amplitude envelope
+        Compute FFT power spectrum of amplitude envelope and calculate relative power.
+        Relative power = power at each frequency / mean power across 0-0.1 Hz range.
         """
         sfreq = self.target_raw.info['sfreq']
-        amplitude_envelope = amplitude_envelope - np.mean(amplitude_envelope)
         n_samples = amplitude_envelope.shape[0]
         freqs = np.fft.rfftfreq(n_samples, d=1/sfreq)
         fft_values = np.fft.rfft(amplitude_envelope)
@@ -180,7 +191,10 @@ class SpindleAnalyzer:
         mask = (freqs >= min_freq) & (freqs <= max_freq)
         x = freqs[mask]
         y = fft_power[mask]
-        return x, y
+        
+        # Calculate relative power: divide by mean power in the 0-0.1 Hz range
+        y_relative = y / np.mean(y)
+        return x, y_relative
 
     def fit_gaussian_to_spectrum(self, x, y):
         # Params order: peak, mu, sigma
@@ -191,8 +205,8 @@ class SpindleAnalyzer:
     def analyze_single_bout(self, bout_info):
         """
         Analyze a single N2 bout: crop raw data, filter to sigma frequencies, compute envelope, FFT, and fit Gaussian.
+        Returns bout result and power spectrum data for aggregation.
         """
-        print(f"Analyzing bout {bout_info.id}:")
         # Crop the raw data to bout times first, then filter
         bout_raw = self.target_raw.copy().crop(tmin=bout_info.start_time, tmax=bout_info.end_time)
         bout_sigma = bout_raw.filter(l_freq=self.low_freq, h_freq=self.high_freq)
@@ -205,19 +219,22 @@ class SpindleAnalyzer:
             fitted_params = self.fit_gaussian_to_spectrum(x, y)
         except Exception as fit_error:
             self.bout_errors[bout_info] = fit_error
-            print(f"  ✗ {bout_info} analysis failed: {fit_error}")
+            error_msg = f"  ✗ {bout_info} analysis failed: {fit_error}"
+            print(textwrap.fill(error_msg, width=110, subsequent_indent="    "))
         
         bout_result = self.plot_fft_power_spectrum_bout(x, y, fitted_params, bout_info)
-        return bout_result
+        
+        # Return both the bout result and the power spectrum data for aggregation
+        return bout_result, (x, y)
 
     def plot_fft_power_spectrum_bout(self, x, y, fitted_params, bout_info, min_freq=0, max_freq=0.1):
-        """Plot FFT power spectrum for a specific bout with or without Gaussian fit."""
+        """Plot FFT relative power spectrum for a bout."""
         plt.figure(figsize=(10, 6))
-        plt.plot(x, y, label=f'FFT Power ({self.target_channels[0]})')
+        plt.plot(x, y, label=f'Relative Power ({self.target_channels[0]})')
         
         bout_result = None
         if fitted_params is not None:
-            peak, mu, sigma = fitted_params
+            _, mu, sigma = fitted_params
             x_fit = np.linspace(min_freq, max_freq, 500)
             y_fit = self.gaussian(x_fit, *fitted_params)
             x1 = mu - sigma
@@ -226,8 +243,17 @@ class SpindleAnalyzer:
             bandwidth_height = self.gaussian(x1, *fitted_params)
             area = simpson(x=x_fit[mask], y=y_fit[mask])
             # TODO: think about the threshold
-            results = {'peak': peak, 'mu': mu, 'sigma': sigma, 'area': area, 'bandwidth_height': bandwidth_height}
-            bout_result = {'subject_id': self.subject_id, 'bout_info': bout_info, 'spectral_analysis': results}
+            
+            bout_result = {
+                'bout_id': bout_info.id,
+                'start_time': bout_info.start_time,
+                'end_time': bout_info.end_time,
+                'duration': bout_info.duration,
+                'peak_frequency': mu,
+                'bandwidth': 2 * sigma,
+                'auc': area
+            }
+            
             plt.plot(x_fit, y_fit, label=f'Gaussian fit (μ={mu:.3f}, STD={sigma:.3f})')
             plt.hlines(bandwidth_height, x1, x2, colors="purple", label="Bandwidth")
             plt.fill_between(x_fit[mask], y_fit[mask], color='skyblue', alpha=0.5, label='±1 STD Area')
@@ -237,8 +263,8 @@ class SpindleAnalyzer:
             title_suffix = " - FAILED"
 
         plt.xlabel('Frequency (Hz)')
-        plt.ylabel('Power')
-        plt.title(f'FFT Power Spectrum - Bout {bout_info.id} ({bout_info.start_time:.1f}-{bout_info.end_time:.1f}s){title_suffix}\n'
+        plt.ylabel('Relative Power')
+        plt.title(f'FFT Relative Power Spectrum - Bout {bout_info.id} ({bout_info.start_time:.1f}-{bout_info.end_time:.1f}s){title_suffix}\n'
                   f'Duration: {bout_info.duration:.1f}s')
         plt.legend()
         plt.tight_layout()
@@ -263,14 +289,14 @@ class SpindleAnalyzer:
         amplitude_envelope = self.compute_envelope(sigma_data)
         self.plot_sigma_envelope(times, sigma_data, amplitude_envelope, start_time, duration)
 
-    def analyze_all_bouts(self):
+    def analyze_all_bouts(self, plot_raw=False):
         """
         Analyze all valid N2 bouts in the recording.
         """
         print(f"Starting analysis of all N2 bouts for subject {self.subject_id}...")
         
         if self.spindles_df is None or self.target_raw is None:
-            self.detect_spindles()
+            self.detect_spindles(plot_raw)
         
         if not self.n2_bouts:
             self.extract_n2_bouts()
@@ -279,20 +305,88 @@ class SpindleAnalyzer:
             print("No valid N2 bouts found!")
             return
         
+        bout_results = []
         for bout_info in self.n2_bouts:
             try:
-                result = self.analyze_single_bout(bout_info)
+                result, (freqs, power) = self.analyze_single_bout(bout_info)
                 if result is not None:
-                    self.bout_results.append(result)
+                    bout_results.append(result)
+                    self._all_power_spectra.append(power)
+                    self._frequencies.append(freqs)
                     print(f"  ✓ {bout_info} analysis succeeded")
             except Exception as e:
                 self.bout_errors[bout_info] = e
                 print(f"  ✗ {bout_info} analysis failed: {e}")
         
-        print(f"Completed analysis of {len(self.bout_results)}/{len(self.n2_bouts)} bouts\n")
+        print(f"Completed analysis of {len(bout_results)}/{len(self.n2_bouts)} bouts\n")
+        if bout_results:
+            self.results_df = pd.DataFrame(bout_results)
+        
+    def compute_mean_spectral_power(self):
+        """
+        Compute the mean spectral power over all bouts.
+        Uses interpolation to create a common frequency grid for averaging.
+        """
+        if not self._frequencies or not self._all_power_spectra:
+            print("No power spectra available. Run analyze_all_bouts() first.")
+            return None, None, None
+        
+        # Create common frequency grid with finest resolution for interpolation
+        highest_min = max(freqs[0] for freqs in self._frequencies)
+        lowest_max = min(freqs[-1] for freqs in self._frequencies)
+        finest_resolution = min(freqs[1] - freqs[0] for freqs in self._frequencies)
+        common_freqs = np.arange(highest_min, lowest_max, finest_resolution)
+        
+        # Interpolate all power spectra to common grid
+        interpolated_spectra = []
+        for freqs, power in zip(self._frequencies, self._all_power_spectra):
+            interp_func = interp1d(freqs, power, bounds_error=False, fill_value='extrapolate')
+            interpolated_power = interp_func(common_freqs)
+            interpolated_spectra.append(interpolated_power)
+        
+        # Convert to numpy array and compute statistics
+        power_matrix = np.array(interpolated_spectra)
+        mean_power_spectrum = np.mean(power_matrix, axis=0)
+        std_power_spectrum = np.std(power_matrix, axis=0)
+        print(f"\nComputed mean spectral power from {len(interpolated_spectra)} bouts successfully.")
+        
+        return common_freqs, mean_power_spectrum, std_power_spectrum
     
+    def plot_mean_spectral_power(self, frequencies=None, mean_power=None, std_power=None):
+        """
+        Plot the mean spectral power (averaged across all bouts).
+        """
+        if frequencies is None or mean_power is None:
+            frequencies, mean_power, std_power = self.compute_mean_spectral_power()
+            
+        if frequencies is None:
+            print("Cannot plot - no valid spectral data computed.")
+            return
+        
+        plt.figure(figsize=(10, 6))
+        plt.plot(frequencies, mean_power, 'b-', linewidth=2, label='Mean Relative Power')
+        
+        if std_power is not None:
+            plt.fill_between(frequencies, 
+                           mean_power - std_power, 
+                           mean_power + std_power, 
+                           alpha=0.3, color='blue', 
+                           label='±1 STD')
+        
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Mean Power')
+        plt.title(f'Mean Spectral Power - Subject {self.subject_id}\n'
+                  f'across all N2 bouts ({self.low_freq}-{self.high_freq} Hz envelope)')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        plot_path = Path(self.output_dir) / f"{self.subject_id}_mean_spectral_power.png"
+        plt.savefig(plot_path, dpi=300)
+        plt.show(block=False)
+        
     def get_summary(self):
-        if not self.bout_results and not self.bout_errors:
+        if self.results_df is None:
             print("No analysis results available. Run analyze_all_bouts() first.")
             return
         
@@ -303,34 +397,23 @@ class SpindleAnalyzer:
         summary_lines.append(f"Frequency Range: {self.low_freq}-{self.high_freq} Hz")
         summary_lines.append(f"Total Spindles Detected: {len(self.spindles_df) if self.spindles_df is not None else 0}")
         summary_lines.append(f"Total N2 Bouts Found: {len(self.n2_bouts)}")
-        summary_lines.append(f"Successfully Analyzed Bouts: {len(self.bout_results)}")
         summary_lines.append(f"Failed Bouts: {len(self.bout_errors)}")
+        summary_lines.append("")
+        summary_lines.append("Per-Bout Analysis:")
+        summary_lines.append(f"{'Bout':<6}{'Duration':<12}{'Peak Freq':<12}{'Bandwidth':<12}{'AUC':<10}")
+        summary_lines.append("-" * 60)
         
-        if self.bout_results:
-            summary_lines.append("")
-            summary_lines.append("Per-Bout Analysis:")
-            summary_lines.append(f"{'Bout':<6}{'Duration':<12}{'Peak Freq':<12}{'Peak Power':<12}{'Area':<10}")
-            summary_lines.append("-" * 60)
-            
-            for result in self.bout_results:
-                bout_id = result['bout_info'].id
-                duration = result['bout_info'].duration
-                mu = result['spectral_analysis']['mu']
-                peak = result['spectral_analysis']['peak']
-                area = result['spectral_analysis']['area']
-                
-                summary_lines.append(f"{bout_id:<6}{duration:<12.1f}{mu:<12.3f}{peak:<12.3f}{area:<10.3f}")
-            
-            # Summary statistics
-            durations = [r['bout_info'].duration for r in self.bout_results]
-            peak_freqs = [r['spectral_analysis']['mu'] for r in self.bout_results]
-            peak_powers = [r['spectral_analysis']['peak'] for r in self.bout_results]
-            
-            summary_lines.append("")
-            summary_lines.append("Summary Statistics:")
-            summary_lines.append(f"Average bout duration: {np.mean(durations):.1f}s (±{np.std(durations):.1f})")
-            summary_lines.append(f"Average peak frequency: {np.mean(peak_freqs):.3f}Hz (±{np.std(peak_freqs):.3f})")
-            summary_lines.append(f"Average peak power: {np.mean(peak_powers):.3f} (±{np.std(peak_powers):.3f})")
+        for _, row in self.results_df.iterrows():
+            summary_lines.append(f"{row['bout_id']:<6}{row['duration']:<12.1f}{row['peak_frequency']:<12.3f}{row['bandwidth']:<12.3f}{row['auc']:<10.3f}")
+        
+        # Summary statistics using DataFrame
+        summary_lines.append("")
+        summary_lines.append("Summary Statistics:")
+        summary_lines.append("-" * 60)
+        summary_lines.append(f"Average bout duration: {self.results_df['duration'].mean():.1f}s (±{self.results_df['duration'].std():.1f})")
+        summary_lines.append(f"Average peak frequency: {self.results_df['peak_frequency'].mean():.3f}Hz (±{self.results_df['peak_frequency'].std():.3f})")
+        summary_lines.append(f"Average bandwidth: {self.results_df['bandwidth'].mean():.3f}Hz (±{self.results_df['bandwidth'].std():.3f})")
+        summary_lines.append(f"Average AUC: {self.results_df['auc'].mean():.3f} (±{self.results_df['auc'].std():.3f})")
         
         for line in summary_lines:
             print(line)
@@ -351,12 +434,13 @@ class SpindleAnalyzer:
 def main():
     sub = "26"
     raw_path = f"D:/Shaked_data/ISO/{sub}_filtered_4_channels.fif"
-    analyzer = SpindleAnalyzer(sub, raw_path, low_freq=13, high_freq=16, target_channels=['VREF'], output_dir="output_1208")
+    analyzer = SpindleAnalyzer(sub, raw_path, low_freq=13, high_freq=16, target_channels=['VREF'])
     
     # Analyze all N2 bouts
     analyzer.analyze_all_bouts()
     analyzer.get_summary()
-    
+    analyzer.plot_mean_spectral_power()
+
     # Optional: segment visualization for a specific time
     # analyzer.analyze_segment(start_time=70, duration=40)
     
