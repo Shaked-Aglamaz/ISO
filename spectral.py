@@ -42,7 +42,7 @@ class SpindleAnalyzer:
         self.low_freq = low_freq
         self.high_freq = high_freq
         self.target_channels = target_channels
-        self.output_dir = output_dir if output_dir else f"{subject_id}_output"
+        self.output_dir = output_dir if output_dir else f"{subject_id}/{subject_id}_{target_channels[0]}_output"
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
         self.raw_path = raw_path
         self.min_duration = min_duration
@@ -165,9 +165,9 @@ class SpindleAnalyzer:
         
         plt.legend()
         plt.tight_layout()
-        plot_path = Path(self.output_dir) / f"{self.subject_id}_sigma_envelope.png"
+        plot_path = Path(self.output_dir) / f"{self.subject_id}_{self.target_channels[0]}_sigma_envelope.png"
         plt.savefig(plot_path, dpi=300)
-        plt.show(block=False)
+        plt.close()
         print(f"Segment plot saved to: {plot_path}")
 
     @staticmethod
@@ -269,9 +269,9 @@ class SpindleAnalyzer:
         plt.legend()
         plt.tight_layout()
 
-        plot_path = Path(self.output_dir) / f"{self.subject_id}_bout_{bout_info.id}_fft_power_spectrum.png"
+        plot_path = Path(self.output_dir) / f"{self.subject_id}_{self.target_channels[0]}_bout_{bout_info.id}_fft_power.png"
         plt.savefig(plot_path, dpi=300)
-        plt.show(block=False)
+        plt.close()
         return bout_result
 
     def analyze_segment(self, start_time, duration):
@@ -293,8 +293,6 @@ class SpindleAnalyzer:
         """
         Analyze all valid N2 bouts in the recording.
         """
-        print(f"Starting analysis of all N2 bouts for subject {self.subject_id}...")
-        
         if self.spindles_df is None or self.target_raw is None:
             self.detect_spindles(plot_raw)
         
@@ -381,9 +379,24 @@ class SpindleAnalyzer:
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         
-        plot_path = Path(self.output_dir) / f"{self.subject_id}_mean_spectral_power.png"
+        plot_path = Path(self.output_dir) / f"{self.subject_id}_{self.target_channels[0]}_mean_spectral_power.png"
         plt.savefig(plot_path, dpi=300)
-        plt.show(block=False)
+        plt.close()
+        
+    def get_averaged_metrics(self):
+        """Calculate averaged metrics across all successful bouts."""
+        if self.results_df is None or self.results_df.empty:
+            return None
+        
+        averaged_metrics = {
+            'channel': self.target_channels[0],
+            'avg_peak_frequency': self.results_df['peak_frequency'].mean(),
+            'avg_bandwidth': self.results_df['bandwidth'].mean(),
+            'avg_auc': self.results_df['auc'].mean(),
+            'n_successful_bouts': len(self.results_df)
+        }
+        
+        return averaged_metrics
         
     def get_summary(self):
         if self.results_df is None:
@@ -391,7 +404,7 @@ class SpindleAnalyzer:
             return
         
         summary_lines = []
-        summary_lines.append(f"Analysis Summary for Subject {self.subject_id}")
+        summary_lines.append(f"Analysis Summary for Subject {self.subject_id}, Channel {self.target_channels[0]}")
         summary_lines.append("=" * 60)
         summary_lines.append(f"Target Channels: {self.target_channels}")
         summary_lines.append(f"Frequency Range: {self.low_freq}-{self.high_freq} Hz")
@@ -427,24 +440,56 @@ class SpindleAnalyzer:
                 error_msg = str(error)
                 summary_lines.append(f"Bout {bout_info.id} ({bout_info.start_time:.1f}-{bout_info.end_time:.1f}s): {error_type} - {error_msg}")
         
-        summary_path = Path(self.output_dir) / f"{self.subject_id}_analysis_summary.txt"
+        summary_path = Path(self.output_dir) / f"{self.subject_id}_{self.target_channels[0]}_analysis_summary.txt"
         with open(summary_path, 'w') as f:
             f.write('\n'.join(summary_lines))
 
+def analyze_all_channels(sub, raw_path):
+    raw = mne.io.read_raw(raw_path, preload=False)
+    excluded_channels = set(FACE_ELECTRODES + NECK_ELECTRODES)
+    valid_channels = [ch for ch in raw.ch_names if ch not in excluded_channels and 'EMG' not in ch]
+    
+    channel_results = []
+    all_bout_results = []
+    for channel in valid_channels:
+        print(f"\n{'='*60}")
+        print(f"Analyzing subject: {sub}, channel: {channel}")
+        print(f"{'='*60}")
+        
+        analyzer = SpindleAnalyzer(sub, raw_path, low_freq=13, high_freq=16, target_channels=[channel])
+        analyzer.analyze_all_bouts()
+        analyzer.get_summary()
+        analyzer.plot_mean_spectral_power()
+        avg_metrics = analyzer.get_averaged_metrics()
+        if avg_metrics is not None:
+            channel_results.append(avg_metrics)
+        
+        if analyzer.results_df is not None and not analyzer.results_df.empty:
+            bout_df = analyzer.results_df.copy()
+            cols = ['channel'] + bout_df.columns.tolist()
+            bout_df['channel'] = channel
+            bout_df = bout_df[cols]
+            all_bout_results.append(bout_df)
+
+    if channel_results:
+        results_df = pd.DataFrame(channel_results)
+        summary_file = f"{sub}/{sub}_all_channels_summary.csv"
+        results_df.to_csv(summary_file, index=False)
+        print(f"\n{'='*60}")
+        print(f"SUMMARY: Saved results for {len(channel_results)} channels to {summary_file}")
+        print(f"{'='*60}")
+    
+    if all_bout_results:
+        all_bouts_df = pd.concat(all_bout_results, ignore_index=True)
+        all_bouts_file = f"{sub}/{sub}_all_bouts_details.csv"
+        all_bouts_df.to_csv(all_bouts_file, index=False)
+        print(f"DETAILED: Saved {len(all_bouts_df)} individual bout results to {all_bouts_file}")
+
+
 def main():
     sub = "26"
-    raw_path = f"D:/Shaked_data/ISO/{sub}_filtered_4_channels.fif"
-    analyzer = SpindleAnalyzer(sub, raw_path, low_freq=13, high_freq=16, target_channels=['VREF'])
-    
-    # Analyze all N2 bouts
-    analyzer.analyze_all_bouts()
-    analyzer.get_summary()
-    analyzer.plot_mean_spectral_power()
-
-    # Optional: segment visualization for a specific time
-    # analyzer.analyze_segment(start_time=70, duration=40)
-    
-    plt.show()
+    raw_path = f"D:/Shaked_data/ISO/{sub}_filtered.fif"
+    analyze_all_channels(sub, raw_path)
 
 
 if __name__ == "__main__":
