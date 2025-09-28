@@ -1,0 +1,13 @@
+* raw.times - time in sec, relative to the start of the raw (always starts at 0)
+* raw.first_samp, raw.last_samp - sample indices relative to the original full recording 
+* raw.info['meas_date'] - real-world datetime when the original raw file started
+
+
+
+* raw cropped - 745 sec of N2
+
+* Numba is a Just-In-Time (JIT) compiler for Python that can significantly speed up numerical computations.
+  MNE uses Numba to accelerate: Digital filtering operations, FFT computations, Resampling algorithms, Statistical calculations
+
+
+DG1 - hypno is longer by 3.42 minutesEB34 - hypno is longer by 0.02 minutes
