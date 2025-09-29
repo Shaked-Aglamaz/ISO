@@ -303,13 +303,6 @@ def main():
             step_duration = time.time() - step_start_time
             print(f"  ✓ {step} completed in {step_duration:.1f} seconds")
             
-            step = "average referencing"
-            step_start_time = time.time()
-            print(f"{step}: {sub}")
-            raw.set_eeg_reference('average', projection=False, ch_type='eeg')
-            step_duration = time.time() - step_start_time
-            print(f"  ✓ {step} completed in {step_duration:.1f} seconds")
-            
             step = "saving"
             step_start_time = time.time()
             print(f"{step}: {sub}")
