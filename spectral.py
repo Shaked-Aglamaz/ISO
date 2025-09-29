@@ -9,6 +9,10 @@ from scipy.integrate import simpson
 from scipy.interpolate import interp1d
 from pathlib import Path
 import textwrap
+import time
+import glob
+import os
+import re
 
 mne.set_log_level("error")
 mne.viz.set_browser_backend('qt')
@@ -44,6 +48,7 @@ class SpindleAnalyzer:
         self.target_channels = target_channels
         self.output_dir = output_dir if output_dir else f"{subject_id}/{subject_id}_{target_channels[0]}_output"
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
+        self._add_to_gitignore(subject_id)
         self.raw_path = raw_path
         self.min_duration = min_duration
         
@@ -56,6 +61,21 @@ class SpindleAnalyzer:
         # For relative spectral power computation
         self._frequencies = []
         self._all_power_spectra = []
+
+    def _add_to_gitignore(self, subject_id):
+        """Add subject directory to .gitignore if not already present."""
+        gitignore_path = Path('.gitignore')
+        subject_pattern = f"{subject_id}/"        
+        if gitignore_path.exists():
+            with open(gitignore_path, 'r') as f:
+                content = f.read()
+            
+            if subject_pattern not in content:
+                with open(gitignore_path, 'a') as f:
+                    f.write(f"\n{subject_pattern}")
+        else:
+            with open(gitignore_path, 'w') as f:
+                f.write(f"# Subject data directories\n{subject_pattern}")
 
     def load_raw_data(self):
         raw_data = mne.io.read_raw(self.raw_path)
@@ -77,17 +97,18 @@ class SpindleAnalyzer:
             self.load_raw_data()
             
         spindles = yasa.spindles_detect(self.target_raw, freq_sp=(self.low_freq, self.high_freq))
-        self.spindles_df = spindles.summary()
-        spindle_annotations = mne.Annotations(
-            self.spindles_df['Start'].values, 
-            self.spindles_df['Duration'].values, 
-            ['Spindle_' + channel for channel in self.spindles_df['Channel']],
-            orig_time=self.target_raw.annotations.orig_time
-        )
-        annotations = self.target_raw.annotations + spindle_annotations
-        self.target_raw.set_annotations(annotations)
-        if plot_raw:
-            self.target_raw.plot()
+        if spindles:
+            self.spindles_df = spindles.summary()
+            spindle_annotations = mne.Annotations(
+                self.spindles_df['Start'].values, 
+                self.spindles_df['Duration'].values, 
+                ['Spindle_' + channel for channel in self.spindles_df['Channel']],
+                orig_time=self.target_raw.annotations.orig_time
+            )
+            annotations = self.target_raw.annotations + spindle_annotations
+            self.target_raw.set_annotations(annotations)
+            if plot_raw:
+                self.target_raw.plot()
 
     def _extract_valid_segments(self, n2_start, n2_end, bad_segments):
         """Extract valid segments from an N2 period, excluding BAD overlaps, and create BoutInfo objects."""
@@ -198,8 +219,18 @@ class SpindleAnalyzer:
 
     def fit_gaussian_to_spectrum(self, x, y):
         # Params order: peak, mu, sigma
-        p0 = [np.max(y), x[np.argmax(y)], 0.01]
-        fitted_params, _ = curve_fit(self.gaussian, x, y, p0=p0)        
+        max_idx = np.argmax(y)
+        peak_amplitude = y[max_idx]
+        peak_frequency = x[max_idx]
+        
+        # Estimate sigma from data spread (use a reasonable fraction of frequency range)
+        frequency_range = x[-1] - x[0]
+        initial_sigma = frequency_range / 20  # Start with 5% of frequency range (more conservative)
+        p0 = [peak_amplitude, peak_frequency, initial_sigma]
+        fitted_params, _ = curve_fit(self.gaussian, x, y, p0=p0)
+        mu = fitted_params[1]
+        if mu < 0:
+            raise ValueError(f"Fitted negative peak frequency {mu:.4f}")
         return fitted_params
 
     def analyze_single_bout(self, bout_info):
@@ -296,6 +327,17 @@ class SpindleAnalyzer:
         if self.spindles_df is None or self.target_raw is None:
             self.detect_spindles(plot_raw)
         
+            # Check if spindle detection failed
+            if self.spindles_df is None:
+                message = f"{self.subject_id} - No spindles found in channel {self.target_channels[0]}"
+                print(message)
+                notes_dir = Path("notes")
+                notes_dir.mkdir(exist_ok=True)
+                notes_file = notes_dir / "notes.txt"
+                with open(notes_file, 'a') as f:
+                    f.write(f"{message}\n")
+                return
+        
         if not self.n2_bouts:
             self.extract_n2_bouts()
         
@@ -370,6 +412,11 @@ class SpindleAnalyzer:
                            mean_power + std_power, 
                            alpha=0.3, color='blue', 
                            label='±1 STD')
+        
+        if self.results_df is not None and not self.results_df.empty:
+            mean_peak_freq = self.results_df['peak_frequency'].mean()
+            plt.axvline(x=mean_peak_freq, color='red', linestyle='--', alpha=0.7, 
+                       label=f'Mean Peak Freq: {mean_peak_freq:.3f} Hz')
         
         plt.xlabel('Frequency (Hz)')
         plt.ylabel('Mean Power')
@@ -487,9 +534,30 @@ def analyze_all_channels(sub, raw_path):
 
 
 def main():
-    sub = "26"
-    raw_path = f"D:/Shaked_data/ISO/{sub}_filtered.fif"
+    start_time = time.time()
+    sub = "EB34"
+    folder_path = f"D:/Shaked_data/ISO/control_clean/{sub}/"
+    
+    all_files = glob.glob(os.path.join(folder_path, "*"))
+    base_fif_pattern = re.compile(r'.*\.fif$')  # ends with .fif
+    numbered_fif_pattern = re.compile(r'.*-\d+\.fif$')  # ends with -X.fif
+    
+    base_files = [f for f in all_files 
+                  if base_fif_pattern.match(os.path.basename(f)) 
+                  and not numbered_fif_pattern.match(os.path.basename(f))]
+    
+    if base_files:
+        raw_path = base_files[0]
+        print(f"Using file: {os.path.basename(raw_path)}")
+    else:
+        print(f"No base .fif file found in {folder_path}")
+        return
+    
     analyze_all_channels(sub, raw_path)
+    
+    end_time = time.time()
+    duration = end_time - start_time
+    print(f"\n🕒 Main function completed in {duration/60:.2f} minutes")
 
 
 if __name__ == "__main__":

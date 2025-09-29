@@ -10,4 +10,5 @@
   MNE uses Numba to accelerate: Digital filtering operations, FFT computations, Resampling algorithms, Statistical calculations
 
 
-DG1 - hypno is longer by 3.42 minutesEB34 - hypno is longer by 0.02 minutes
+DG1 - hypno is longer by 3.42 minutes
+EB34 - hypno is longer by 0.02 minutes
