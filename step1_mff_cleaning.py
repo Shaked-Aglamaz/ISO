@@ -7,7 +7,10 @@ import psutil
 import traceback
 import time
 
-from spectral import FACE_ELECTRODES, NECK_ELECTRODES
+from step3_spectral import FACE_ELECTRODES, NECK_ELECTRODES
+
+# Base directory - change this path when moving between computers
+BASE_DIR = "I:/Shaked/ISO_data"
 
 def load_subject_cleaning_mapping():
     """Load mapping between subject ID and cleaning ID from Google Sheet"""
@@ -169,17 +172,19 @@ def resample_and_filter(raw):
     raw.filter(l_freq=0.1, h_freq=40, phase='zero-double')
 
 
-def add_annotations(raw, sub, cleaning_id, EGI_path):
+def add_annotations(raw, sub, cleaning_id, annotations_dir):
     if not cleaning_id:
         raise KeyError(f"No cleaning ID found for subject {sub}") 
     
-    dir1 = f"{EGI_path}/output_files/{cleaning_id}_output"
-    dir2 = f"{EGI_path}/mayas_output/{cleaning_id}_output"
-    if os.path.exists(dir1):
-        annotations_path = f"{dir1}/CleaningPipe/annotations.txt"
-    elif os.path.exists(dir2):
-        annotations_path = f"{dir2}/CleaningPipe/annotations.txt"
-    else:
+    search_dirs = ["output_files", "mayas_output"]
+    annotations_path = None
+    for subdir in search_dirs:
+        potential_path = f"{annotations_dir}/{subdir}/{cleaning_id}_annotations.txt"
+        if os.path.exists(potential_path):
+            annotations_path = potential_path
+            break
+    
+    if not annotations_path:
         raise KeyError(f"Warning: No annotations found for subject {sub} ({cleaning_id})")
     
     annotations = mne.read_annotations(annotations_path)
@@ -197,7 +202,7 @@ def add_annotations(raw, sub, cleaning_id, EGI_path):
 
 
 def add_sleep_scoring(raw, sub):
-    hypnogram_path = f"D:/Shaked_data/Epilepsy/EGI_cleaning/output_files/HC_hypno/{sub}.txt"
+    hypnogram_path = f"{BASE_DIR}/HC_hypno/{sub}.txt"
     hypno = np.loadtxt(hypnogram_path, dtype=int)
 
     expected_epochs = int(raw.times[-1])
@@ -236,7 +241,7 @@ def add_sleep_scoring(raw, sub):
 
 def save_processed_raw(raw, sub):
     """Save processed raw data"""
-    subject_folder = f'D:/Shaked_data/ISO/control_clean/{sub}'
+    subject_folder = f'{BASE_DIR}/control_clean/{sub}'
     os.makedirs(subject_folder, exist_ok=True)
     
     n_channels = len(raw.ch_names)
@@ -257,14 +262,14 @@ def main():
     mne.set_config('MNE_USE_NUMBA', 'false')  # Disable numba to save memory
     
     subject_to_cleaning_id = load_subject_cleaning_mapping()
-    EGI_path = "D:/Shaked_data/Epilepsy/EGI_cleaning"
-    directory = "D:/Shaked_data/ISO/control_raw"
+    annotations_dir = f"{BASE_DIR}/bad_annotations"
+    directory = f"{BASE_DIR}/control_raw"
     
     error_by_subject = {}
     files = sorted(os.listdir(directory))
     n_subjects = len(files)
     
-    for i, file in enumerate(files[1:], 1):
+    for i, file in enumerate(files):
         iteration_start_time = time.time()
         raw = None  # Initialize to None for proper cleanup
         sub = file.split('_')[0]      
@@ -292,7 +297,7 @@ def main():
             step_start_time = time.time()
             print(f"{step}: {sub}")
             cleaning_id = subject_to_cleaning_id.get(sub, None)
-            add_annotations(raw, sub, cleaning_id, EGI_path)
+            add_annotations(raw, sub, cleaning_id, annotations_dir)
             step_duration = time.time() - step_start_time
             print(f"  ✓ {step} completed in {step_duration:.1f} seconds")
             

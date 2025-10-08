@@ -12,3 +12,33 @@
 
 DG1 - hypno is longer by 3.42 minutes
 EB34 - hypno is longer by 0.02 minutes
+
+EL3002: fixed
+EGI epoch first/last samps could not be parsed
+
+EL3004: fixed
+EGI epoch first/last samps could not be parsed
+
+EL3020: fixed
+EGI epoch first/last samps could not be parsed
+
+EL3026: fixed
+EGI epoch first/last samps could not be parsed
+
+EL3040:
+'No cleaning ID found for subject EL3040'
+
+HG78: 
+Could not find any EEG data in the 0 files found in I:\Shaked\ISO_data\control_raw\HG78_Sleep_20230626_001558.
+
+EL3003 - hypno is longer by 3.77 minutes
+EL3006 - hypno is longer by 3.72 minutes
+EL3009 - hypno is longer by 0.02 minutes
+EL3016 - hypno is longer by 0.02 minutes
+EL3025 - hypno is longer by 3.22 minutes
+el3007 - hypno is longer by 0.02 minutes
+EL3002 - hypno is longer by 0.02 minutes
+EL3004 - hypno is longer by 0.02 minutes
+EL3020 - hypno is longer by 0.02 minutes
+EL3026 - hypno is longer by 0.02 minutes
+ON68 - hypno is longer by 0.02 minutes
