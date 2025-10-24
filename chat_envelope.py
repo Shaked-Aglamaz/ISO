@@ -9,13 +9,11 @@ from scipy.optimize import curve_fit
 from scipy.integrate import simpson
 from scipy.signal import find_peaks, butter, filtfilt
 from scipy.fft import fft, fftfreq
+
 mne.set_log_level("error")
 mne.viz.set_browser_backend('qt')
 mne.set_config('MNE_BROWSER_THEME', 'dark')
-face_electrodes = ['E238', 'E234', 'E230', 'E226', 'E225', 'E241', 'E244', 'E248', 'E252', 'E253', 'E242', 'E243', 'E245', 'E246', 'E249', 'E247', 'E250', 'E251', 'E255', 'E254', 
-                   'E73', 'E54', 'E37', 'E32', 'E31', 'E18', 'E25', 'E61', 'E46', 'E67', 'E68', 'E239', 'E240', 'E235', 'E231', 'E236', 'E237', 'E232', 'E227', 'E210', 'E219', 'E220', 
-                   'E1', 'E10', 'E218', 'E228', 'E233']
-neck_electrodes = ['E145', 'E146', 'E147', 'E156', 'E165', 'E174', 'E166', 'E157', 'E148', 'E137', 'E136', 'E135', 'E134', 'E133']
+
 sub_to_hypno_path = {'31': 'HC_V1/EL3006', '26': 'HC_V1/RD43', '9': 'HK5'}
 
 

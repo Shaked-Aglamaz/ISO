@@ -13,15 +13,11 @@ import time
 import glob
 import os
 import re
+from config import BASE_DIR, FACE_ELECTRODES, NECK_ELECTRODES
 
 mne.set_log_level("error")
 mne.viz.set_browser_backend('qt')
 mne.set_config('MNE_BROWSER_THEME', 'dark')
-
-FACE_ELECTRODES = ['E238', 'E234', 'E230', 'E226', 'E225', 'E241', 'E244', 'E248', 'E252', 'E253', 'E242', 'E243', 'E245', 'E246', 'E249', 'E247', 'E250', 'E251', 'E255', 'E254', 
-                   'E73', 'E54', 'E37', 'E32', 'E31', 'E18', 'E25', 'E61', 'E46', 'E67', 'E68', 'E239', 'E240', 'E235', 'E231', 'E236', 'E237', 'E232', 'E227', 'E210', 'E219', 'E220', 
-                   'E1', 'E10', 'E218', 'E228', 'E233']
-NECK_ELECTRODES = ['E145', 'E146', 'E147', 'E156', 'E165', 'E174', 'E166', 'E157', 'E148', 'E137', 'E136', 'E135', 'E134', 'E133']
 SUB_TO_HYPNO_PATH = {'31': 'HC_V1/EL3006', '26': 'HC_V1/RD43', '9': 'HK5'}
 
 
@@ -430,6 +426,21 @@ class SpindleAnalyzer:
         plt.savefig(plot_path, dpi=300)
         plt.close()
         
+        # Save spectral data as CSV for later group analysis
+        if frequencies is not None and mean_power is not None:
+            assert len(frequencies) == len(mean_power), f"Length mismatch: frequencies={len(frequencies)}, mean_power={len(mean_power)}"
+            
+            if std_power is not None:
+                assert len(std_power) == len(frequencies), f"Length mismatch: std_power={len(std_power)}, frequencies={len(frequencies)}"
+                std_values = std_power
+            else:
+                std_values = np.zeros_like(mean_power)
+
+            spectral_data = pd.DataFrame({'frequency': frequencies, 'mean_power': mean_power, 'std_power': std_values})
+            csv_path = Path(self.output_dir) / f"{self.subject_id}_{self.target_channels[0]}_spectral_power.csv"
+            spectral_data.to_csv(csv_path, index=False)
+            print(f"Spectral data saved to: {csv_path}")
+        
     def get_averaged_metrics(self):
         """Calculate averaged metrics across all successful bouts."""
         if self.results_df is None or self.results_df.empty:
@@ -533,31 +544,89 @@ def analyze_all_channels(sub, raw_path):
         print(f"DETAILED: Saved {len(all_bouts_df)} individual bout results to {all_bouts_file}")
 
 
+def get_all_subjects(main_dir):
+    """Get list of all subject IDs from the specified main directory."""
+    if not os.path.exists(main_dir):
+        print(f"Main directory not found: {main_dir}")
+        return []
+    
+    subject_dirs = [d for d in os.listdir(main_dir) 
+                   if os.path.isdir(os.path.join(main_dir, d))]
+    
+    print(f"Found {len(subject_dirs)} subjects: {subject_dirs}")
+    return subject_dirs
+
+
 def main():
     start_time = time.time()
-    sub = "EB34"
-    folder_path = f"D:/Shaked_data/ISO/control_clean/{sub}/"
     
-    all_files = glob.glob(os.path.join(folder_path, "*"))
-    base_fif_pattern = re.compile(r'.*\.fif$')  # ends with .fif
-    numbered_fif_pattern = re.compile(r'.*-\d+\.fif$')  # ends with -X.fif
-    
-    base_files = [f for f in all_files 
-                  if base_fif_pattern.match(os.path.basename(f)) 
-                  and not numbered_fif_pattern.match(os.path.basename(f))]
-    
-    if base_files:
-        raw_path = base_files[0]
-        print(f"Using file: {os.path.basename(raw_path)}")
-    else:
-        print(f"No base .fif file found in {folder_path}")
+    subject_dirs = get_all_subjects(f"{BASE_DIR}/control_clean/")
+    if not subject_dirs:
         return
     
-    analyze_all_channels(sub, raw_path)
+    processed_subjects = []
+    failed_subjects = []
     
+    # Process each subject
+    for i, sub in enumerate(subject_dirs, 1):
+        subject_start_time = time.time()
+        print(f"\n{'='*80}")
+        print(f"PROCESSING SUBJECT {i}/{len(subject_dirs)}: {sub}")
+        print(f"{'='*80}")
+        
+        try:
+            folder_path = f"{BASE_DIR}/control_clean/{sub}/"
+            
+            all_files = glob.glob(os.path.join(folder_path, "*"))
+            base_fif_pattern = re.compile(r'.*\.fif$')  # ends with .fif
+            numbered_fif_pattern = re.compile(r'.*-\d+\.fif$')  # ends with -X.fif
+            
+            base_files = [f for f in all_files 
+                          if base_fif_pattern.match(os.path.basename(f)) 
+                          and not numbered_fif_pattern.match(os.path.basename(f))]
+            
+            if base_files:
+                # Select the file with the longest filename
+                raw_path = max(base_files, key=lambda x: len(os.path.basename(x)))
+                print(f"Using file: {os.path.basename(raw_path)} (out of {len(base_files)} options)")
+                
+                analyze_all_channels(sub, raw_path)
+                
+                subject_end_time = time.time()
+                subject_duration = subject_end_time - subject_start_time
+                processed_subjects.append(sub)
+                print(f"✓ Successfully processed subject {sub} in {subject_duration/60:.2f} minutes")
+                
+            else:
+                subject_end_time = time.time()
+                subject_duration = subject_end_time - subject_start_time
+                print(f"✗ No base .fif file found in {folder_path} (checked in {subject_duration:.1f} seconds)")
+                failed_subjects.append((sub, "No .fif file found"))
+                
+        except Exception as e:
+            subject_end_time = time.time()
+            subject_duration = subject_end_time - subject_start_time
+            print(f"✗ Error processing subject {sub} after {subject_duration/60:.2f} minutes: {e}")
+            failed_subjects.append((sub, str(e)))
+    
+    # Final summary
     end_time = time.time()
     duration = end_time - start_time
-    print(f"\n🕒 Main function completed in {duration/60:.2f} minutes")
+    
+    print(f"\n{'='*80}")
+    print(f"PROCESSING COMPLETE")
+    print(f"{'='*80}")
+    print(f"🕒 Total time: {duration/60:.2f} minutes")
+    print(f"✓ Successfully processed: {len(processed_subjects)}/{len(subject_dirs)} subjects")
+    if processed_subjects:
+        print(f"   {', '.join(processed_subjects)}")
+    
+    if failed_subjects:
+        print(f"✗ Failed subjects: {len(failed_subjects)}")
+        for sub, error in failed_subjects:
+            print(f"   {sub}: {error}")
+    
+    print(f"{'='*80}")
 
 
 if __name__ == "__main__":

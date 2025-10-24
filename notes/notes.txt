@@ -1,35 +1,27 @@
+** extreme values go over: 
+  EL3006 - E202, E88
+  EL3005 - E9
+
 * raw.times - time in sec, relative to the start of the raw (always starts at 0)
 * raw.first_samp, raw.last_samp - sample indices relative to the original full recording 
 * raw.info['meas_date'] - real-world datetime when the original raw file started
-
-
 
 * raw cropped - 745 sec of N2
 
 * Numba is a Just-In-Time (JIT) compiler for Python that can significantly speed up numerical computations.
   MNE uses Numba to accelerate: Digital filtering operations, FFT computations, Resampling algorithms, Statistical calculations
 
+EL3002: fixed EGI epoch first/last samps could not be parsed
 
-DG1 - hypno is longer by 3.42 minutes
-EB34 - hypno is longer by 0.02 minutes
+EL3004: fixed EGI epoch first/last samps could not be parsed
 
-EL3002: fixed
-EGI epoch first/last samps could not be parsed
+EL3020: fixed EGI epoch first/last samps could not be parsed
 
-EL3004: fixed
-EGI epoch first/last samps could not be parsed
+EL3026: fixed EGI epoch first/last samps could not be parsed
 
-EL3020: fixed
-EGI epoch first/last samps could not be parsed
+EL3040: 'No cleaning ID found for subject EL3040'
 
-EL3026: fixed
-EGI epoch first/last samps could not be parsed
-
-EL3040:
-'No cleaning ID found for subject EL3040'
-
-HG78: 
-Could not find any EEG data in the 0 files found in I:\Shaked\ISO_data\control_raw\HG78_Sleep_20230626_001558.
+HG78: Could not find any EEG data in the 0 files found in I:\Shaked\ISO_data\control_raw\HG78_Sleep_20230626_001558.
 
 EL3003 - hypno is longer by 3.77 minutes
 EL3006 - hypno is longer by 3.72 minutes
@@ -42,3 +34,113 @@ EL3004 - hypno is longer by 0.02 minutes
 EL3020 - hypno is longer by 0.02 minutes
 EL3026 - hypno is longer by 0.02 minutes
 ON68 - hypno is longer by 0.02 minutes
+EB34 - hypno is longer by 0.02 minutes
+HG78 - hypno is longer by 0.02 minutes
+YF58 - hypno is longer by 0.02 minutes
+el3007 - hypno is longer by 0.02 minutes
+DG1 - hypno is longer by 3.42 minutes
+LS56 - hypno is longer by 1.93 minutes
+RD43 - hypno is longer by 1.53 minutes
+SB00 - hypno is longer by 0.02 minutes
+
+EL3002 - No spindles found in channel E91
+EL3002 - No spindles found in channel E200
+EL3002 - No spindles found in channel E229
+EL3002 - No spindles found in channel E256
+
+EL3006 - No spindles found in channel E11
+EL3006 - No spindles found in channel E33
+EL3006 - No spindles found in channel E38
+EL3006 - No spindles found in channel E39
+EL3006 - No spindles found in channel E48
+EL3006 - No spindles found in channel E57
+EL3006 - No spindles found in channel E71
+EL3006 - No spindles found in channel E75
+EL3006 - No spindles found in channel E85
+EL3006 - No spindles found in channel E91
+EL3006 - No spindles found in channel E92
+EL3006 - No spindles found in channel E102
+EL3006 - No spindles found in channel E126
+EL3006 - No spindles found in channel E139
+EL3006 - No spindles found in channel E140
+EL3006 - No spindles found in channel E152
+EL3006 - No spindles found in channel E256
+
+el3007 - No spindles found in channel E13
+el3007 - No spindles found in channel E28
+el3007 - No spindles found in channel E35
+el3007 - No spindles found in channel E107
+el3007 - No spindles found in channel E138
+el3007 - No spindles found in channel E209
+el3007 - No spindles found in channel E224
+
+EL3016 - No spindles found in channel E138
+EL3016 - No spindles found in channel E150
+
+HG78 - No spindles found in channel E56
+HG78 - No spindles found in channel E97
+HG78 - No spindles found in channel E223
+
+NE36 - No spindles found in channel E91
+NE36 - No spindles found in channel E92
+
+ON68 - No spindles found in channel E209
+ON68 - No spindles found in channel E216
+
+YF58 - No spindles found in channel E2
+YF58 - No spindles found in channel E3
+YF58 - No spindles found in channel E4
+YF58 - No spindles found in channel E5
+YF58 - No spindles found in channel E6
+YF58 - No spindles found in channel E7
+YF58 - No spindles found in channel E8
+YF58 - No spindles found in channel E11
+YF58 - No spindles found in channel E12
+YF58 - No spindles found in channel E13
+YF58 - No spindles found in channel E14
+YF58 - No spindles found in channel E15
+YF58 - No spindles found in channel E16
+YF58 - No spindles found in channel E17
+YF58 - No spindles found in channel E21
+YF58 - No spindles found in channel E22
+YF58 - No spindles found in channel E23
+YF58 - No spindles found in channel E24
+YF58 - No spindles found in channel E28
+YF58 - No spindles found in channel E29
+YF58 - No spindles found in channel E30
+YF58 - No spindles found in channel E33
+YF58 - No spindles found in channel E34
+YF58 - No spindles found in channel E35
+YF58 - No spindles found in channel E36
+YF58 - No spindles found in channel E38
+YF58 - No spindles found in channel E39
+YF58 - No spindles found in channel E40
+YF58 - No spindles found in channel E41
+YF58 - No spindles found in channel E42
+YF58 - No spindles found in channel E43
+YF58 - No spindles found in channel E47
+YF58 - No spindles found in channel E48
+YF58 - No spindles found in channel E49
+YF58 - No spindles found in channel E50
+YF58 - No spindles found in channel E51
+YF58 - No spindles found in channel E55
+YF58 - No spindles found in channel E56
+YF58 - No spindles found in channel E57
+YF58 - No spindles found in channel E58
+YF58 - No spindles found in channel E62
+YF58 - No spindles found in channel E65
+YF58 - No spindles found in channel E72
+YF58 - No spindles found in channel E195
+YF58 - No spindles found in channel E196
+YF58 - No spindles found in channel E198
+YF58 - No spindles found in channel E205
+YF58 - No spindles found in channel E206
+YF58 - No spindles found in channel E207
+YF58 - No spindles found in channel E211
+YF58 - No spindles found in channel E213
+YF58 - No spindles found in channel E214
+YF58 - No spindles found in channel E215
+YF58 - No spindles found in channel E221
+YF58 - No spindles found in channel E222
+YF58 - No spindles found in channel E224
+YF58 - No spindles found in channel E229

@@ -7,18 +7,20 @@ import psutil
 import traceback
 import time
 
-from step3_spectral import FACE_ELECTRODES, NECK_ELECTRODES
+from config import FACE_ELECTRODES, NECK_ELECTRODES, BASE_DIR
 
-# Base directory - change this path when moving between computers
-BASE_DIR = "I:/Shaked/ISO_data"
-
-def load_subject_cleaning_mapping():
-    """Load mapping between subject ID and cleaning ID from Google Sheet"""
+def load_google_sheet():
+    """Load the main subject data from Google Sheets"""
     sheet_url = "https://docs.google.com/spreadsheets/d/1BE0Yu-wECLe0NkdIIvxGjYKNL84FRgUE/edit?gid=768201376#gid=768201376"
     # Convert to CSV export URL
     csv_url = sheet_url.replace('/edit?gid=', '/export?format=csv&gid=')
     
     df = pd.read_csv(csv_url)
+    return df
+
+def load_subject_cleaning_mapping():
+    """Load mapping between subject ID and cleaning ID from Google Sheet"""
+    df = load_google_sheet()
     mapping = dict(zip(df['ID'], df['cleaning id'].fillna(0).astype(int).astype(str)))
     return mapping
 

@@ -1,6 +1,9 @@
 # Python cache
 __pycache__/
 
+# Virtual environment
+eeg_clean/
+
 # Subject data directories
 26/
 DG1/
@@ -9,3 +12,22 @@ EB34/
 # Document files
 *.docx
 *.pdf
+
+EL3002/
+EL3003/
+EL3004/
+EL3005/
+EL3006/
+el3007/
+EL3009/
+EL3016/
+EL3020/
+EL3025/
+EL3026/
+HG78/
+LS56/
+NE36/
+ON68/
+RD43/
+SB00/
+YF58/
