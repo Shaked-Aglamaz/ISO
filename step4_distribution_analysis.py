@@ -27,11 +27,8 @@ def load_subject_data(subject_id):
         return None
 
 
-def collect_all_data(subjects, target_channel='VREF'):
-    """
-    Collect spectral data from all subjects for the target channel.
-    Combines data from individual subject CSV files into one dataset.
-    """
+def collect_all_data(subjects, target_channel):
+    """Collect and combine spectral data from all subjects for target channel."""
     all_data = []
     for subject in subjects:
         subject_data = load_subject_data(subject)
@@ -54,88 +51,69 @@ def collect_all_data(subjects, target_channel='VREF'):
 
 
 def calculate_optimal_bins(data):
-    """
-    Calculate optimal number of bins for histogram based on data size and distribution.
-    Uses Freedman-Diaconis rule with reasonable limits for small datasets.
-    """
+    """Calculate optimal histogram bins using Freedman-Diaconis rule."""
     q75, q25 = np.percentile(data, [75, 25])
     iqr = q75 - q25
-    bin_width = 2 * iqr / (len(data) ** (1/3))  # Freedman-Diaconis rule
+    bin_width = 2 * iqr / (len(data) ** (1/3))
     
-    # For small datasets, use a more conservative approach
-    # Rule of thumb: roughly sqrt(n) to n/3 bins for small n
     max_reasonable_bins = min(int(np.sqrt(len(data))) + 5, len(data) // 2)
     n_bins = max(8, min(max_reasonable_bins, int((data.max() - data.min()) / bin_width))) if bin_width > 0 else max_reasonable_bins
     
     return n_bins
 
 
-def plot_distributions(df, channel_name='VREF'):
-    """
-    Create individual distribution plots for each spectral metric.
-    Generates fine-grained histograms with KDE curves for peak frequency, bandwidth, and AUC.
-    Includes statistical annotations and saves each plot separately.
-    """
+def _plot_single_metric_distribution(data, ax, info, include_bins_in_stats=True):
+    """Plot single metric distribution on axis."""
+    n_bins = calculate_optimal_bins(data)
+    sns.histplot(data, kde=True, ax=ax, alpha=0.7, bins=n_bins, stat='count')
+    
+    mean_val = data.mean()
+    std_val = data.std()
+    median_val = data.median()
+    
+    ax.axvline(mean_val, color='red', linestyle='--', alpha=0.8, linewidth=2, label=f'Mean: {mean_val:.3f}')
+    ax.axvline(median_val, color='orange', linestyle='--', alpha=0.8, linewidth=2, label=f'Median: {median_val:.3f}')
+    
+    ax.set_xlabel(f'{info["name"]} ({info["unit"]})', fontsize=12)
+    ax.set_ylabel('Count', fontsize=12)
+    ax.legend(fontsize=11)
+    ax.grid(True, alpha=0.3)
+    
+    stats_base = f'N = {len(data)}\nMean = {mean_val:.3f}\nSTD = {std_val:.3f}\nMedian = {median_val:.3f}'
+    stats_text = f'{stats_base}\nBins = {n_bins}' if include_bins_in_stats else stats_base
+    ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8), fontsize=10)
+
+
+def plot_distributions(df, output_dir, channel_name):
+    """Create separate distribution plots for each spectral metric."""
     metrics = {
         'avg_peak_frequency': {'name': 'Peak Frequency', 'unit': 'Hz'},
         'avg_bandwidth': {'name': 'Bandwidth', 'unit': 'Hz'},
-        'avg_auc': {'name': 'Area Under Curve', 'unit': 'AUC'}
+        'avg_auc': {'name': 'Area Under Curve', 'unit': 'AU'}
     }
     
-    output_dir = Path("distribution_analysis")
-    output_dir.mkdir(exist_ok=True)
-    
     for metric, info in metrics.items():
-        # Create individual figure for each metric
         fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-        
         data = df[metric].dropna()
         
-        # Calculate optimal number of bins using consistent method
-        n_bins = calculate_optimal_bins(data)
-        
-        # Create histogram with calculated bins for consistent detail
-        sns.histplot(data, kde=True, ax=ax, alpha=0.7, bins=n_bins, stat='count')
-        
-        # Calculate statistics
-        mean_val = data.mean()
-        std_val = data.std()
-        median_val = data.median()
-        
-        # Add statistical lines
-        ax.axvline(mean_val, color='red', linestyle='--', alpha=0.8, linewidth=2, label=f'Mean: {mean_val:.3f}')
-        ax.axvline(median_val, color='orange', linestyle='--', alpha=0.8, linewidth=2, label=f'Median: {median_val:.3f}')
-        
-        # Formatting
+        _plot_single_metric_distribution(data, ax, info, include_bins_in_stats=True)
         ax.set_title(f'{info["name"]} Distribution - {channel_name} Channel\n(N={len(data)} subjects)', fontsize=14)
-        ax.set_xlabel(f'{info["name"]} ({info["unit"]})', fontsize=12)
-        ax.set_ylabel('Count', fontsize=12)
-        ax.legend(fontsize=11)
-        ax.grid(True, alpha=0.3)
-        
-        # Add statistics text box
-        stats_text = f'N = {len(data)}\nMean = {mean_val:.3f}\nSTD = {std_val:.3f}\nMedian = {median_val:.3f}\nBins = {n_bins}'
-        ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8), fontsize=10)
         
         plt.tight_layout()
-        
-        # Save individual plot
         plot_path = output_dir / f"{channel_name}_{metric}_distribution.png"
         plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-        plt.close()  # Close figure to free memory
+        plt.close()
         
-    print(f"\nAll individual distribution plots saved to: {output_dir}/")
+    print(f"\nAll {len(metrics)} distribution plots saved to: {output_dir}/")
 
 
-def plot_combined_distributions(df, channel_name='VREF'):
-    """
-    Create a combined plot with all distributions in subplots (optional).
-    """
+def plot_combined_distributions(df, output_dir, channel_name):
+    """Create combined plot with all distributions in subplots."""
     metrics = {
         'avg_peak_frequency': {'name': 'Peak Frequency', 'unit': 'Hz'},
         'avg_bandwidth': {'name': 'Bandwidth', 'unit': 'Hz'},
-        'avg_auc': {'name': 'Area Under Curve', 'unit': 'AUC'}
+        'avg_auc': {'name': 'Area Under Curve', 'unit': 'AU'}
     }
     
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
@@ -145,32 +123,11 @@ def plot_combined_distributions(df, channel_name='VREF'):
         ax = axes[i]
         data = df[metric].dropna()
         
-        # Calculate optimal number of bins using same method as individual plots
-        n_bins = calculate_optimal_bins(data)
-        
-        sns.histplot(data, kde=True, ax=ax, alpha=0.7, bins=n_bins)
-        
-        mean_val = data.mean()
-        std_val = data.std()
-        median_val = data.median()
-        
-        ax.axvline(mean_val, color='red', linestyle='--', alpha=0.8, label=f'Mean: {mean_val:.3f}')
-        ax.axvline(median_val, color='orange', linestyle='--', alpha=0.8, label=f'Median: {median_val:.3f}')
-        
+        _plot_single_metric_distribution(data, ax, info, include_bins_in_stats=False)
         ax.set_title(f'{info["name"]} Distribution')
-        ax.set_xlabel(f'{info["name"]} ({info["unit"]})')
-        ax.set_ylabel('Count')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        
-        stats_text = f'N = {len(data)}\nMean = {mean_val:.3f}\nSTD = {std_val:.3f}\nMedian = {median_val:.3f}'
-        ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
     
     plt.tight_layout()
     
-    output_dir = Path("distribution_analysis")
-    output_dir.mkdir(exist_ok=True)
     plot_path = output_dir / f"{channel_name}_combined_distributions.png"
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -178,15 +135,12 @@ def plot_combined_distributions(df, channel_name='VREF'):
     print(f"Combined distribution plot saved to: {plot_path}")
 
 
-def plot_boxplots_with_dots(df, channel_name='VREF'):
-    """
-    Create a combined plot with three boxplots (frequency, bandwidth, AUC) 
-    with individual subject dots overlaid.
-    """
+def plot_boxplots_with_dots(df, output_dir, channel_name):
+    """Create boxplots with individual subject dots overlaid."""
     metrics = {
         'avg_peak_frequency': {'name': 'Peak Frequency', 'unit': 'Hz'},
         'avg_bandwidth': {'name': 'Bandwidth', 'unit': 'Hz'},
-        'avg_auc': {'name': 'Area Under Curve', 'unit': 'AUC'}
+        'avg_auc': {'name': 'Area Under Curve', 'unit': 'AU'}
     }
     
     fig, axes = plt.subplots(1, 3, figsize=(15, 6))
@@ -227,8 +181,6 @@ def plot_boxplots_with_dots(df, channel_name='VREF'):
     plt.tight_layout()
     
     # Save plot
-    output_dir = Path("distribution_analysis")
-    output_dir.mkdir(exist_ok=True)
     boxplot_path = output_dir / f"{channel_name}_boxplots_with_dots.png"
     plt.savefig(boxplot_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -237,9 +189,7 @@ def plot_boxplots_with_dots(df, channel_name='VREF'):
 
 
 def load_and_combine_subject_data(subjects):
-    """
-    Load data from all subjects and combine into a single DataFrame.
-    """
+    """Load and combine data from all subjects."""
     all_subject_data = []
     for subject in subjects:
         subject_data = load_subject_data(subject)
@@ -254,19 +204,26 @@ def load_and_combine_subject_data(subjects):
 
 
 def filter_eeg_channels(combined_data):
-    """
-    Filter out non-EEG channels and calculate channel averages across subjects.
-    """
-    # Hardcoded specific channel exclusions for problematic channels
+    """Filter non-EEG channels and calculate channel averages, handling failed ISFS channels."""
     specific_exclusions = {
         'EL3006': ['E202', 'E88'],
-        'EL3005': ['E9']
+        'EL3005': ['E9'],
+        # 'RD43': ['E118', 'E110', "E39", "E41"]
     }
     
-    excluded_patterns = ['EMG', 'EOG', 'ECG']
-    eeg_data = combined_data[~combined_data['channel'].str.contains('|'.join(excluded_patterns), case=False, na=False)]
+    eeg_data = combined_data.copy()
     
-    # Apply hardcoded specific exclusions
+    # Handle channels that failed Gaussian fitting (missing ISFS)
+    if 'gaussian_fit_failed' in eeg_data.columns:
+        # For failed channels, the metrics columns should already be empty/NaN in the CSV
+        # Let's ensure they are properly set to NaN for visualization
+        metric_columns = ['peak_frequency', 'bandwidth', 'auc'] 
+        for col in metric_columns:
+            if col in eeg_data.columns:
+                # Convert empty strings to NaN if they exist
+                eeg_data[col] = pd.to_numeric(eeg_data[col], errors='coerce')
+    
+    # Apply specific manual exclusions (completely remove these channels)
     for subject, excluded_channels in specific_exclusions.items():
         if subject in combined_data['subject'].values:
             eeg_data = eeg_data[~((eeg_data['subject'] == subject) & (eeg_data['channel'].isin(excluded_channels)))]
@@ -276,21 +233,38 @@ def filter_eeg_channels(combined_data):
         print("No EEG channels found for topography")
         return None
     
-    # Calculate average values across all subjects for each channel
-    channel_averages = eeg_data.groupby('channel')[['avg_peak_frequency', 'avg_bandwidth', 'avg_auc']].mean().reset_index()
+    # For single subject, just return the data as is (don't average across subjects)
+    if len(eeg_data['subject'].unique()) == 1:
+        channel_averages = eeg_data[['channel', 'peak_frequency', 'bandwidth', 'auc']].copy()
+        # Rename columns to match expected format
+        channel_averages = channel_averages.rename(columns={
+            'peak_frequency': 'avg_peak_frequency',
+            'bandwidth': 'avg_bandwidth', 
+            'auc': 'avg_auc'
+        })
+        # Add gaussian_fit_failed column for tracking
+        if 'gaussian_fit_failed' in eeg_data.columns:
+            channel_averages['gaussian_fit_failed'] = eeg_data['gaussian_fit_failed']
+    else:
+        # Multiple subjects: average across subjects (ignoring NaN values)
+        channel_averages = eeg_data.groupby('channel')[['peak_frequency', 'bandwidth', 'auc']].mean().reset_index()
+        # Rename columns to match expected format
+        channel_averages = channel_averages.rename(columns={
+            'peak_frequency': 'avg_peak_frequency',
+            'bandwidth': 'avg_bandwidth',
+            'auc': 'avg_auc'
+        })
+    
     return channel_averages
 
 
 def create_electrode_montage(channel_names):
-    """
-    Create MNE montage and filter channels to those with known positions.
-    """
+    """Create MNE montage and filter channels with known positions."""
     try:
         montage = mne.channels.make_standard_montage('EGI_256')
-        # Filter montage to only include channels we have
         available_channels = [ch for ch in channel_names if ch in montage.ch_names]
         
-        if len(available_channels) < 10:  # Need minimum channels for meaningful topography
+        if len(available_channels) < 10:
             print(f"Not enough standard electrode positions found ({len(available_channels)})")
             print("Available channels:", available_channels[:10], "...")
             return None, None
@@ -303,21 +277,15 @@ def create_electrode_montage(channel_names):
 
 
 def setup_electrode_info(channel_averages):
-    """
-    Create electrode montage, filter data to known positions, and create MNE info object.
-    """
-    # Get channel names
+    """Setup electrode montage and create MNE info object."""
     channel_names = channel_averages['channel'].tolist()
     
     montage, available_channels = create_electrode_montage(channel_names)
     if montage is None:
         return None, None, None
     
-    # Filter data to channels with known positions
     channel_averages_filtered = channel_averages[channel_averages['channel'].isin(available_channels)]
     channel_names_filtered = available_channels
-    
-    # Create MNE info object
     info = mne.create_info(ch_names=channel_names_filtered, sfreq=250, ch_types='eeg')
     info.set_montage(montage)
     
@@ -325,114 +293,181 @@ def setup_electrode_info(channel_averages):
 
 
 def create_mne_info(channel_names, montage):
-    """
-    Create MNE Info object with electrode positions.
-    
-    Args:
-        channel_names (list): List of channel names
-        montage: MNE montage object
-        
-    Returns:
-        mne.Info: Info object for topographical plotting
-    """
+    """Create MNE Info object with electrode positions."""
     info = mne.create_info(ch_names=channel_names, sfreq=250, ch_types='eeg')
     info.set_montage(montage)
     return info
 
 
 def extract_channel_values(channel_averages, channel_names, metric):
-    """
-    Extract values for a specific metric from channel averages.
-    
-    Args:
-        channel_averages (pd.DataFrame): Averaged values per channel
-        channel_names (list): List of channel names
-        metric (str): Metric name to extract
-        
-    Returns:
-        np.array: Values for the specified metric
-    """
+    """Extract values for specific metric from channel averages, handling missing ISFS data."""
     values = []
+    missing_channels = []
+    failed_channels = []
     for ch in channel_names:
         ch_data = channel_averages[channel_averages['channel'] == ch]
         if not ch_data.empty:
-            values.append(ch_data[metric].iloc[0])
+            metric_value = ch_data[metric].iloc[0]
+            if pd.isna(metric_value):
+                failed_channels.append(ch)
+            values.append(metric_value)
         else:
+            missing_channels.append(ch)
             values.append(np.nan)
     
     return np.array(values)
 
 
-def plot_single_topography(values, info, ax, metric_info):
-    """
-    Plot a single topographical map with normalization and colorbar.
+def remove_outliers_3std(values, metric_name=""):
+    """Remove outliers beyond ±3 standard deviations."""
+    original_valid = np.sum(~np.isnan(values))
     
-    Args:
-        values (np.array): Values to plot
-        info (mne.Info): MNE info object
-        ax: Matplotlib axis
-        metric_info (dict): Dictionary with 'name' and 'unit' keys
-        
-    Returns:
-        float: Mean value used for normalization
-    """
+    if original_valid == 0:
+        print(f"  {metric_name}: No valid values to process")
+        return values
+    
+    mean_val = np.nanmean(values)
+    std_val = np.nanstd(values)
+    
+    if std_val == 0:
+        print(f"  {metric_name}: No variation in data (STD = 0)")
+        return values
+    
+    # Create mask for values within ±3 STD
+    outlier_mask = np.abs(values - mean_val) > 3 * std_val
+    outliers_count = np.sum(outlier_mask)
+    
+    # Replace outliers with NaN
+    cleaned_values = values.copy()
+    cleaned_values[outlier_mask] = np.nan
+    
+    final_valid = np.sum(~np.isnan(cleaned_values))
+    
+    if outliers_count > 0:
+        print(f"  {metric_name}: Removed {outliers_count} outliers, {final_valid}/{original_valid} channels remaining")
+    
+    return cleaned_values
+
+
+def plot_single_topography(values, info, ax, metric_info, normalize=True, fig=None):
+    """Plot single topographical map with optional normalization and missing data handling."""
+    # Count data availability
+    total_electrodes = len(values)
     valid_mask = ~np.isnan(values)
+    n_valid = np.sum(valid_mask)
+    n_missing = total_electrodes - n_valid
     
-    if np.sum(valid_mask) == 0:
-        print(f"No valid data for {metric_info['name']}")
+    if n_valid == 0:
+        ax.text(0.5, 0.5, f'No valid ISFS data\nfor {metric_info["name"]}', 
+                transform=ax.transAxes, ha='center', va='center', 
+                fontsize=12, bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.8))
+        ax.set_title(f'{metric_info["name"]}\n(0/{total_electrodes} channels)', fontsize=12)
         return None
+    
+    mean_val = np.nanmean(values)
+    std_val = np.nanstd(values)
+    
+    if std_val > 0:
+        outlier_mask = np.abs(values - mean_val) > 3 * std_val
+        cleaned_values = values.copy()
+        cleaned_values[outlier_mask] = np.nan
+        n_outliers = np.sum(outlier_mask)
+    else:
+        cleaned_values = values
+        n_outliers = 0
+    
+    n_plotted = np.sum(~np.isnan(cleaned_values))
+    mean_value = np.nanmean(cleaned_values)
+    
+    # Prepare data for plotting
+    if normalize:
+        if mean_value == 0:
+            plot_values = cleaned_values
+            cbar_label = f'{metric_info["unit"]} (unnormalized)'
+        else:
+            plot_values = cleaned_values / mean_value
+            cbar_label = 'Normalized Value\n(/ mean)'
+        title = f'{metric_info["name"]}\n(Mean = {mean_value:.3f} {metric_info["unit"]})'
+    else:
+        plot_values = cleaned_values
+        title = f'{metric_info["name"]}\n(Mean = {mean_value:.3f} {metric_info["unit"]})'
+        cbar_label = f'{metric_info["unit"]}'
+    
+    # Add data availability info to title
+    if n_missing > 0 or n_outliers > 0:
+        availability_info = f'{n_plotted}/{total_electrodes} channels'
+        if n_missing > 0:
+            availability_info += f' ({n_missing} no ISFS'
+            if n_outliers > 0:
+                availability_info += f', {n_outliers} outliers)'
+            else:
+                availability_info += ')'
+        elif n_outliers > 0:
+            availability_info += f' ({n_outliers} outliers)'
         
-    # Normalize by mean across all electrodes
-    mean_value = np.nanmean(values)
-    normalized_values = values / mean_value
+        title += f'\n({availability_info})'
     
-    # Determine color scale limits based on normalized data range
-    vmin = np.nanmin(normalized_values)
-    vmax = np.nanmax(normalized_values)
+    # Plot the topography
+    vmin = np.nanmin(plot_values)
+    vmax = np.nanmax(plot_values)
     
-    # Plot topography
-    im, _ = mne.viz.plot_topomap(normalized_values, info, axes=ax, show=False,
+    # Replace NaN values with mean for plotting (so MNE shows the data properly)
+    plot_data = plot_values.copy()
+    missing_data_mask = np.isnan(plot_values)
+    
+    if np.any(missing_data_mask):
+        plot_data[missing_data_mask] = np.nanmean(plot_values)
+    
+    # Plot the topography
+    im, _ = mne.viz.plot_topomap(plot_data, info, axes=ax, show=False,
                                cmap='RdBu_r', vlim=(vmin, vmax), contours=6)
     
-    # Add colorbar and title
-    ax.set_title(f'{metric_info["name"]}\n(Mean = {mean_value:.3f} {metric_info["unit"]})', fontsize=12)
+    ax.set_title(title, fontsize=10)
     
-    # Add colorbar to the right of each subplot
-    cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label(f'Normalized Value\n(/ mean)', fontsize=10)
-    
+    # Don't create colorbar here - it will be handled by the calling function
+    # Just return the mean_value and let the caller handle the colorbar
     return mean_value
 
 
-def create_and_save_topography_figure(subjects, metrics, info, channel_averages, channel_names):
+def create_and_save_topography_figure(subjects, metrics, info, channel_averages, channel_names, normalize=True):
     """Create figure with all three topographical plots and save to file."""
-    fig, axes = plt.subplots(3, 1, figsize=(8, 12))
+    # Create figure with subplots, but reserve space for colorbars
+    fig, axes = plt.subplots(3, 1, figsize=(10, 12))
     
     # Handle single subject vs multiple subjects
     if len(subjects) == 1:
         subject_name = subjects[0]
-        title = f'Topographical Distribution - Subject {subject_name}\n(Normalized by mean across channels)'
+        norm_text = "(Normalized by mean across channels)" if normalize else "(Raw values)"
+        title = f'Topographical Distribution - Subject {subject_name}\n{norm_text}'
         output_dir = Path(subject_name)
-        filename = f"{subject_name}_topographies_normalized.png"
+        suffix = "normalized" if normalize else "raw"
+        filename = f"{subject_name}_topographies_{suffix}.png"
     else:
-        title = f'Topographical Distribution - Average Across {len(subjects)} Subjects\n(Normalized by mean across channels)'
+        norm_text = "(Normalized by mean across channels)" if normalize else "(Raw values)"
+        title = f'Topographical Distribution - Average Across {len(subjects)} Subjects\n{norm_text}'
         output_dir = Path("distribution_analysis")
-        filename = f"topographies_average_all_subjects_normalized.png"
+        suffix = "normalized" if normalize else "raw"
+        filename = f"topographies_average_all_subjects_{suffix}.png"
     
     fig.suptitle(title, fontsize=14)
     
     for i, (metric, metric_info) in enumerate(metrics.items()):
         ax = axes[i]
         
-        # Extract values for this metric
         values = extract_channel_values(channel_averages, channel_names, metric)
+        mean_value = plot_single_topography(values, info, ax, metric_info, normalize=normalize, fig=fig)
         
-        # Plot topography
-        mean_value = plot_single_topography(values, info, ax, metric_info)
         if mean_value is None:
             continue
+            
+        if len(ax.images) > 0:
+            im = ax.images[0]
+            cbar_label = 'Normalized Value\n(/ mean)' if normalize else f'{metric_info["unit"]}'
+            cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            cbar.set_label(cbar_label, fontsize=9)
     
-    plt.tight_layout()
+    # Use subplots_adjust instead of tight_layout to avoid layout conflicts
+    plt.subplots_adjust(left=0.1, right=0.85, top=0.92, bottom=0.05, hspace=0.4)
     
     # Save plot
     output_dir.mkdir(exist_ok=True)
@@ -443,40 +478,58 @@ def create_and_save_topography_figure(subjects, metrics, info, channel_averages,
     print(f"Topographical plots saved to: {topo_path}")
 
 
-def plot_topographies(subjects):
-    """
-    Create topographical plots for the three spectral parameters.
-    Shows spatial distribution across electrodes, with values averaged across all subjects
-    and normalized by mean across all electrodes.
-    Plots are arranged vertically: Peak Frequency, Bandwidth, AUC.
-    """
-    # Step 1: Load and combine data from all subjects
+def plot_topographies(subjects, normalize=True):
+    """Create topographical plots for the three spectral parameters with ISFS failure handling."""
+    print(f"\n{'='*60}")
+    print(f"TOPOGRAPHY ANALYSIS - {'Subject ' + subjects[0] if len(subjects) == 1 else f'{len(subjects)} Subjects'}")
+    print(f"{'='*60}")
+    
     combined_data = load_and_combine_subject_data(subjects)
     if combined_data is None:
         return
     
-    # Step 2: Filter to EEG channels and calculate averages
+    # Print data summary before filtering
+    if 'gaussian_fit_failed' in combined_data.columns:
+        total_channels = len(combined_data)
+        failed_channels = combined_data[combined_data['gaussian_fit_failed'] == True]
+        n_failed = len(failed_channels)
+        n_successful = total_channels - n_failed
+        
+        print(f"📊 Raw Data Summary:")
+        print(f"   Successful ISFS detection: {n_successful} channels")
+        print(f"   Failed ISFS detection: {n_failed} channels ({failed_channels['channel'].head(5).tolist()}{'...' if n_failed > 5 else ''})")
+
     channel_averages = filter_eeg_channels(combined_data)
     if channel_averages is None:
         return
     
-    # Step 3: Setup electrode info (montage, filtering, MNE info)
-    info, channel_averages, channel_names = setup_electrode_info(channel_averages)
+    info, channel_averages_filtered, channel_names = setup_electrode_info(channel_averages)
     if info is None:
         return
     
-    # Step 4: Define metrics to plot
+    # Print electrode montage summary
+    total_electrodes = len(channel_averages)
+    valid_positions = len(channel_names)
+    print(f"\n📍 Electrode Positioning Summary:")
+    print(f"   Channels after filtering: {total_electrodes}")
+    print(f"   Channels with known EGI-256 positions: {valid_positions}")
+    print(f"   Excluded (no position): {total_electrodes - valid_positions}")
+    
     metrics = {
         'avg_peak_frequency': {'name': 'Peak Frequency', 'unit': 'Hz'},
         'avg_bandwidth': {'name': 'Bandwidth', 'unit': 'Hz'}, 
-        'avg_auc': {'name': 'Area Under Curve', 'unit': 'AUC'}
+        'avg_auc': {'name': 'Area Under Curve', 'unit': 'AU'}
     }
     
-    # Step 5: Create and save topography figure
-    create_and_save_topography_figure(subjects, metrics, info, channel_averages, channel_names)
+    print(f"\n🎨 Creating topographical plots...")
+    print(f"   Normalization: {'Enabled' if normalize else 'Disabled'}")
+    
+    create_and_save_topography_figure(subjects, metrics, info, channel_averages_filtered, channel_names, normalize=normalize)
+    
+    print(f"✅ Topography analysis completed")
 
 
-def print_summary_statistics(df, channel_name='VREF'):
+def print_summary_statistics(df, channel_name):
     """
     Print comprehensive summary statistics for all spectral metrics.
     Includes count, mean, std, quartiles, min/max for each metric.
@@ -497,24 +550,13 @@ def print_summary_statistics(df, channel_name='VREF'):
         print(f"  Max: {data.max():.4f}")
 
 
-def plot_subject_all_channels_distributions(subjects):
-    """
-    Plot distributions of peak frequency, bandwidth, and AUC for all channels 
-    within each subject individually. Creates separate plots for each subject.
-    
-    Parameters:
-    -----------
-    subjects : list
-        List of subject IDs to analyze
-    """
+def plot_subject_all_channels_distributions(subjects, output_dir):
+    """Plot distributions for all channels within each subject."""
     metrics = {
-        'avg_peak_frequency': {'name': 'Peak Frequency', 'unit': 'Hz'},
-        'avg_bandwidth': {'name': 'Bandwidth', 'unit': 'Hz'},
-        'avg_auc': {'name': 'Area Under Curve', 'unit': 'AUC'}
+        'peak_frequency': {'name': 'Peak Frequency', 'unit': 'Hz'},
+        'bandwidth': {'name': 'Bandwidth', 'unit': 'Hz'},
+        'auc': {'name': 'Area Under Curve', 'unit': 'AU'}
     }
-    
-    output_dir = Path("distribution_analysis")
-    output_dir.mkdir(exist_ok=True)
     
     for subject in subjects:
         print(f"\nProcessing distributions for subject {subject}...")
@@ -525,8 +567,7 @@ def plot_subject_all_channels_distributions(subjects):
             print(f"  ✗ No data found for subject {subject}")
             continue
         
-        # Filter out non-EEG channels only
-        eeg_data = subject_data[~subject_data['channel'].str.contains('EMG', case=False, na=False)]
+        eeg_data = subject_data.copy()
         
         if len(eeg_data) == 0:
             print(f"  ✗ No EEG channels found for subject {subject}")
@@ -534,7 +575,7 @@ def plot_subject_all_channels_distributions(subjects):
         
         # Create figure with 3 subplots for the 3 metrics
         fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-        fig.suptitle(f'All Channels Distribution - Subject {subject}\n(N={len(eeg_data)} channels)', fontsize=16)
+        fig.suptitle(f'All Channels Distribution - Subject {subject}', fontsize=16)
         
         for i, (metric, info) in enumerate(metrics.items()):
             ax = axes[i]
@@ -559,13 +600,12 @@ def plot_subject_all_channels_distributions(subjects):
             
             # Add statistical lines
             ax.axvline(mean_val, color='red', linestyle='--', alpha=0.8, linewidth=2, 
-                      label=f'Mean: {mean_val:.3f}')
+                      label=f'Mean')
             ax.axvline(median_val, color='orange', linestyle='--', alpha=0.8, linewidth=2, 
-                      label=f'Median: {median_val:.3f}')
+                      label=f'Median')
             
             # Formatting
-            ax.set_title(f'{info["name"]}', fontsize=14)
-            ax.set_xlabel(f'{info["name"]} ({info["unit"]})', fontsize=12)
+            ax.set_xlabel(f'{info["name"]} ({info["unit"]})', fontsize=14)
             ax.set_ylabel('Count', fontsize=12)
             ax.legend(fontsize=10)
             ax.grid(True, alpha=0.3)
@@ -590,21 +630,7 @@ def plot_subject_all_channels_distributions(subjects):
 
 
 def load_and_process_all_channels_data(subjects):
-    """
-    Shared function to load, filter, and average all channels data across subjects.
-    
-    Parameters:
-    -----------
-    subjects : list
-        List of subject IDs to analyze
-        
-    Returns:
-    --------
-    tuple: (subject_averages_df, total_channels, valid_subjects)
-        - subject_averages_df: DataFrame with subject averages across channels
-        - total_channels: Total number of channels processed
-        - valid_subjects: Number of subjects with valid data
-    """
+    """Load, filter, and average all channels data across subjects."""
     # Hardcoded specific channel exclusions
     specific_exclusions = {
         'EL3006': ['E202', 'E88'],
@@ -622,8 +648,7 @@ def load_and_process_all_channels_data(subjects):
         if subject_data is None:
             continue
         
-        # Filter out non-EEG channels
-        eeg_data = subject_data[~subject_data['channel'].str.contains('EMG', case=False, na=False)]
+        eeg_data = subject_data.copy()
         
         # Apply hardcoded specific exclusions
         if subject in specific_exclusions:
@@ -652,16 +677,8 @@ def load_and_process_all_channels_data(subjects):
     return subject_averages, total_channels, len(subject_averages)
 
 
-def plot_boxplots_all_channels_all_subjects(subjects):
-    """
-    Create boxplots for all channels across all subjects with individual data points.
-    Similar to plot_boxplots_with_dots but for all channels combined instead of single channel.
-    
-    Parameters:
-    -----------
-    subjects : list
-        List of subject IDs to analyze
-    """
+def plot_boxplots_all_channels_all_subjects(subjects, output_dir):
+    """Create boxplots for all channels across all subjects."""
     # Use shared data processing function
     subject_averages, total_channels, valid_subjects = load_and_process_all_channels_data(subjects)
     
@@ -671,7 +688,7 @@ def plot_boxplots_all_channels_all_subjects(subjects):
     metrics = {
         'avg_peak_frequency': {'name': 'Peak Frequency', 'unit': 'Hz'},
         'avg_bandwidth': {'name': 'Bandwidth', 'unit': 'Hz'},
-        'avg_auc': {'name': 'Area Under Curve', 'unit': 'AUC'}
+        'avg_auc': {'name': 'Area Under Curve', 'unit': 'AU'}
     }
     
     fig, axes = plt.subplots(1, 3, figsize=(15, 6))
@@ -719,8 +736,6 @@ def plot_boxplots_all_channels_all_subjects(subjects):
     plt.tight_layout()
     
     # Save plot
-    output_dir = Path("distribution_analysis")
-    output_dir.mkdir(exist_ok=True)
     boxplot_path = output_dir / "all_channels_all_subjects_boxplots.png"
     plt.savefig(boxplot_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -728,17 +743,8 @@ def plot_boxplots_all_channels_all_subjects(subjects):
     print(f"✓ All channels boxplots saved to: {boxplot_path}")
 
 
-def plot_combined_all_channels_distributions(subjects):
-    """
-    Plot combined distributions across all channels and all subjects.
-    Creates one plot showing the overall distribution of each metric across 
-    all subjects (averaged within each subject across all channels).
-    
-    Parameters:
-    -----------
-    subjects : list
-        List of subject IDs to analyze
-    """
+def plot_combined_all_channels_distributions(subjects, output_dir):
+    """Plot combined distributions across all channels and subjects."""
     # Use shared data processing function
     subject_averages, total_channels, valid_subjects = load_and_process_all_channels_data(subjects)
     
@@ -748,7 +754,7 @@ def plot_combined_all_channels_distributions(subjects):
     metrics = {
         'avg_peak_frequency': {'name': 'Peak Frequency', 'unit': 'Hz'},
         'avg_bandwidth': {'name': 'Bandwidth', 'unit': 'Hz'},
-        'avg_auc': {'name': 'Area Under Curve', 'unit': 'AUC'}
+        'avg_auc': {'name': 'Area Under Curve', 'unit': 'AU'}
     }
     
     # Create combined plot
@@ -799,8 +805,6 @@ def plot_combined_all_channels_distributions(subjects):
     plt.tight_layout()
     
     # Save combined plot
-    output_dir = Path("distribution_analysis")
-    output_dir.mkdir(exist_ok=True)
     plot_path = output_dir / "all_channels_subject_avg_distributions.png"
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -808,7 +812,7 @@ def plot_combined_all_channels_distributions(subjects):
     print(f"✓ All channels (subject averages) distribution plot saved to: {plot_path}")
 
 
-def plot_group_spectral_power(subjects, target_channel='VREF', smoothing_window=5, aggregate_channels=False):
+def plot_group_spectral_power(subjects, output_dir, target_channel, smoothing_window=5, aggregate_channels=False):
     """
     Plot smoothed mean spectral power for the group.
     
@@ -851,10 +855,6 @@ def plot_group_spectral_power(subjects, target_channel='VREF', smoothing_window=
             for spectral_file in spectral_files:
                 # Extract channel name from file path
                 channel = spectral_file.stem.split('_')[1]  # e.g., EL3004_VREF_spectral_power -> VREF
-                
-                # Skip EMG channels
-                if 'EMG' in channel:
-                    continue
                 
                 # Apply hardcoded specific exclusions
                 if subject in specific_exclusions and channel in specific_exclusions[subject]:
@@ -989,8 +989,6 @@ def plot_group_spectral_power(subjects, target_channel='VREF', smoothing_window=
     plt.tight_layout()
     
     # Save the plot
-    output_dir = Path("distribution_analysis")
-    output_dir.mkdir(exist_ok=True)
     plot_path = output_dir / filename
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     plt.show()
@@ -1002,66 +1000,48 @@ def plot_group_spectral_power(subjects, target_channel='VREF', smoothing_window=
 
 
 def main():
-    """
-    Main function to run distribution analysis across all subjects.
-    Analyzes distributions of spectral metrics (peak frequency, bandwidth, AUC)
-    for specific electrodes and generates plots and statistics.
-    """
+    """Run distribution analysis across all subjects."""
     subjects = get_all_subjects(f"{BASE_DIR}/control_clean/")
     if not subjects:
         print("No subjects found!")
         return
     
-    target_channel = 'VREF'
-    print(f"\nAnalyzing distributions for channel: {target_channel}")
+    output_dir = Path("distribution_analysis")
+    output_dir.mkdir(exist_ok=True)
     
-    # for subject in all_subjects:
-        # subjects = [subject]
-    df = collect_all_data(subjects, target_channel)
-    if df is None:
-        print("No data to analyze!")
-        return
+    # df = collect_all_data(subjects, target_channel)
+    # if df is None:
+    #     print("No data to analyze!")
+    #     return
     
-    # plot_distributions(df, target_channel)
-    # plot_combined_distributions(df, target_channel)
-    # plot_boxplots_with_dots(df, target_channel)
+    # plot_distributions(df, output_dir, target_channel)
+    # plot_combined_distributions(df, output_dir, target_channel)
+    # plot_boxplots_with_dots(df, output_dir, target_channel)
     
-    # Plot topography for all subjects with normalization
-    plot_topographies(subjects)
-    
-    # Generate all-channels distribution plots
-    print("\n" + "="*60)
-    print("GENERATING ALL-CHANNELS DISTRIBUTION PLOTS")
-    print("="*60)
+    # plot_topographies(subjects, normalize=True)
+    # plot_topographies(subjects, normalize=False)
     
     # Individual subject all-channels distributions
-    # plot_subject_all_channels_distributions(subjects)
+    plot_subject_all_channels_distributions(subjects, output_dir)
     
     # Combined all-channels distribution across all subjects
-    # plot_combined_all_channels_distributions(subjects)
+    # plot_combined_all_channels_distributions(subjects, output_dir)
     
     # All channels boxplots
-    # plot_boxplots_all_channels_all_subjects(subjects)
-    
-    # Generate both spectral plots
-    print("\n" + "="*60)
-    print("GENERATING SPECTRAL POWER PLOTS")
-    print("="*60)
+    # plot_boxplots_all_channels_all_subjects(subjects, output_dir)
     
     # Single channel plot
-    # plot_group_spectral_power(subjects, target_channel, aggregate_channels=False)
+    # plot_group_spectral_power(subjects, output_dir, target_channel, aggregate_channels=False)
     
     # All channels aggregated plot
-    # plot_group_spectral_power(subjects, target_channel, smoothing_window=3, aggregate_channels=True)
+    # plot_group_spectral_power(subjects, output_dir, target_channel, smoothing_window=3, aggregate_channels=True)
     
     # print_summary_statistics(df, target_channel)
     
-    if len(subjects) > 1:
-        output_dir = Path("distribution_analysis")
-        output_dir.mkdir(exist_ok=True)
-        data_path = output_dir / f"{target_channel}_combined_data.csv"
-        df.to_csv(data_path, index=False)
-        print(f"\nCombined dataset saved to: {data_path}")
+    # if len(subjects) > 1:
+    #     data_path = output_dir / f"{target_channel}_combined_data.csv"
+    #     df.to_csv(data_path, index=False)
+    #     print(f"\nCombined dataset saved to: {data_path}")
 
 if __name__ == "__main__":
     main()
