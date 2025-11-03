@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import yasa
-from scipy.signal import hilbert, detrend
+from scipy.signal import hilbert, detrend, filtfilt
 from scipy.optimize import curve_fit
 from scipy.integrate import simpson
 from scipy.interpolate import interp1d
@@ -35,7 +35,7 @@ class BoutInfo:
 
 class SpindleAnalyzer:
     def __init__(self, subject_id, raw_path, low_freq=13, high_freq=16, target_channels=['VREF'], 
-                output_dir=None, min_duration=280):
+                output_dir=None, min_duration=280, apply_detrending=True):
         self.subject_id = subject_id
         self.low_freq = low_freq
         self.high_freq = high_freq
@@ -45,6 +45,7 @@ class SpindleAnalyzer:
         self._add_to_gitignore(subject_id)
         self.raw_path = raw_path
         self.min_duration = min_duration
+        self.apply_detrending = apply_detrending
         
         self.target_raw = None
         self.spindles_df = None
@@ -217,11 +218,10 @@ class SpindleAnalyzer:
         else:
             return amplitude_envelope, False
     
-    def compute_fft_power_spectrum(self, amplitude_envelope, min_freq=0, max_freq=0.1, 
-                                 apply_detrending=True, bout_id=None):
+    def compute_fft_power_spectrum(self, amplitude_envelope, min_freq=0, max_freq=0.1, bout_id=None):
         """Compute FFT power spectrum with detrending (per-bout relative power only)."""
         
-        if apply_detrending:
+        if self.apply_detrending:
             amplitude_envelope, was_detrended = self.detect_low_frequency_artifacts(amplitude_envelope)
             if was_detrended and bout_id is not None:
                 self.detrended_bouts.append(bout_id)
@@ -356,19 +356,6 @@ class SpindleAnalyzer:
             plt.close()
         
         return plot_path
-
-    def analyze_segment(self, start_time, duration):
-        """Analyze and plot a specific time segment."""
-        if self.spindles_df is None or self.target_raw is None:
-            self.detect_spindles()
-        
-        end_time = start_time + duration
-        segment_raw = self.target_raw.copy().crop(tmin=start_time, tmax=end_time)
-        segment_sigma = segment_raw.filter(l_freq=self.low_freq, h_freq=self.high_freq)
-        sigma_data, times = segment_sigma.get_data(return_times=True)
-        sigma_data = sigma_data[0] * 1e6  # convert from V to µV
-        amplitude_envelope = self.compute_envelope(sigma_data)
-        self.plot_sigma_envelope(times, sigma_data, amplitude_envelope, start_time, duration)
 
     def _validate_spindles_and_bouts(self, plot_raw=False):
         """Helper function to validate spindle detection and N2 bouts before analysis."""
@@ -671,7 +658,7 @@ class SpindleAnalyzer:
         with open(summary_path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(summary_lines))
 
-def analyze_all_channels(sub, raw_path):
+def analyze_all_channels(sub, raw_path, apply_detrending=True):
     raw = mne.io.read_raw(raw_path, preload=False)
     excluded_channels = set(FACE_ELECTRODES + NECK_ELECTRODES)
     valid_channels = [ch for ch in raw.ch_names if ch not in excluded_channels and 'EMG' not in ch]
@@ -683,7 +670,7 @@ def analyze_all_channels(sub, raw_path):
         print(f"Analyzing subject: {sub}, channel: {channel}")
         print(f"{'='*60}")
         
-        analyzer = run_channel_analysis(sub, raw_path, channel)
+        analyzer = run_channel_analysis(sub, raw_path, channel, apply_detrending=apply_detrending)
         aggregate_channel_results(analyzer, channel, channel_results, all_bout_results)
 
     save_multi_channel_summary(sub, channel_results, all_bout_results)
@@ -724,10 +711,11 @@ def find_subject_fif_file(subject_id):
         return None
 
 
-def run_channel_analysis(subject_id, raw_path, channel, output_dir=None):
+def run_channel_analysis(subject_id, raw_path, channel, output_dir=None, apply_detrending=True):
     """Run complete analysis pipeline for a single channel."""
     analyzer = SpindleAnalyzer(subject_id, raw_path, low_freq=13, high_freq=16, 
-                             target_channels=[channel], output_dir=output_dir)
+                             target_channels=[channel], output_dir=output_dir, 
+                             apply_detrending=apply_detrending)
     analyzer.analyze_all_bouts()
     analyzer.get_summary()
     analyzer.plot_baseline_correction_preview()
@@ -785,9 +773,13 @@ def save_focused_analysis_results(analyzer, subject_id, channel_name, output_dir
         print(f"✓ Saved {len(bout_df)} individual bout results to {bout_file}")
 
 
-def process_all_subjects():
+def process_all_subjects(apply_detrending=True):
     """Process all subjects in the control_clean directory."""
     start_time = time.time()
+    print(f"{'='*80}")
+    print(f"Detrending: {'ENABLED' if apply_detrending else 'DISABLED'}")
+    print(f"{'='*80}\n")
+    
     subject_dirs = get_all_subjects(f"{BASE_DIR}/control_clean/")
     if not subject_dirs:
         return
@@ -803,7 +795,7 @@ def process_all_subjects():
         try:
             raw_path = find_subject_fif_file(sub)
             if raw_path:
-                analyze_all_channels(sub, raw_path)
+                analyze_all_channels(sub, raw_path, apply_detrending)
                 subject_duration = time.time() - subject_start_time
                 processed_subjects.append(sub)
                 print(f"✓ Successfully processed subject {sub} in {subject_duration/60:.2f} minutes")
@@ -836,15 +828,16 @@ def process_all_subjects():
     print(f"{'='*80}")
 
 
-def focused_electrode_analysis(target_subject, target_electrode, output_dir):
+def focused_electrode_analysis(target_subject, target_electrode, output_dir, apply_detrending=True):
     """Perform focused analysis on single electrode of single subject."""
     start_time = time.time()
     print(f"\nFOCUSED ANALYSIS: Subject {target_subject}, Electrode {target_electrode}")
+    print(f"Detrending: {'ENABLED' if apply_detrending else 'DISABLED'}")
     try:
         raw_path = find_subject_fif_file(target_subject)
         if raw_path:
             print(f"{'='*60}")
-            analyzer = run_channel_analysis(target_subject, raw_path, target_electrode, output_dir)
+            analyzer = run_channel_analysis(target_subject, raw_path, target_electrode, output_dir, apply_detrending)
             save_focused_analysis_results(analyzer, target_subject, target_electrode, output_dir)
             
             end_time = time.time()
@@ -865,9 +858,10 @@ def focused_electrode_analysis(target_subject, target_electrode, output_dir):
 def main():
     """Main function to run spectral analysis."""
     
-    process_all_subjects()  # OPTION 1: Process all subjects
+    process_all_subjects(apply_detrending=True)
     
-    # focused_electrode_analysis(target_subject="RD43", target_electrode="E158", output_dir="tmp/baseline06")
+    # focused_electrode_analysis(target_subject="RD43", target_electrode="E221", 
+    #                           output_dir="tmp/no_detrending", apply_detrending=False)
 
 
 if __name__ == "__main__":
