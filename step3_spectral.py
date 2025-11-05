@@ -674,7 +674,7 @@ class SpindleAnalyzer:
         with open(summary_path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(summary_lines))
 
-def analyze_all_channels(sub, raw_path, apply_detrending=True, include_n3=False):
+def analyze_all_channels(sub, raw_path, apply_detrending=True, include_n3=False, subject_dir=None):
     raw = mne.io.read_raw(raw_path, preload=False)
     excluded_channels = set(FACE_ELECTRODES + NECK_ELECTRODES)
     valid_channels = [ch for ch in raw.ch_names if ch not in excluded_channels and 'EMG' not in ch]
@@ -686,7 +686,8 @@ def analyze_all_channels(sub, raw_path, apply_detrending=True, include_n3=False)
         print(f"Analyzing subject: {sub}, channel: {channel}")
         print(f"{'='*60}")
         
-        analyzer = run_channel_analysis(sub, raw_path, channel, apply_detrending=apply_detrending, include_n3=include_n3)
+        output_dir = f"{subject_dir}/{sub}_{channel}_output" if subject_dir else None
+        analyzer = run_channel_analysis(sub, raw_path, channel, output_dir, apply_detrending, include_n3)
         aggregate_channel_results(analyzer, channel, channel_results, all_bout_results)
 
     save_multi_channel_summary(sub, channel_results, all_bout_results)
@@ -796,9 +797,10 @@ def process_all_subjects(apply_detrending=True, include_n3=False):
     print(f"Detrending: {'ENABLED' if apply_detrending else 'DISABLED'}")
     print(f"{'='*80}\n")
     
-    subject_dirs = get_all_subjects(f"{BASE_DIR}/control_clean/")
-    if not subject_dirs:
-        return
+    # subject_dirs = get_all_subjects(f"{BASE_DIR}/control_clean/")
+    # if not subject_dirs:
+    #     return
+    subject_dirs = ["RD43"]
 
     subject_dirs = ["RD43"]
     processed_subjects = []
@@ -812,7 +814,8 @@ def process_all_subjects(apply_detrending=True, include_n3=False):
         try:
             raw_path = find_subject_fif_file(sub)
             if raw_path:
-                analyze_all_channels(sub, raw_path, apply_detrending, include_n3)
+                subject_dir = f"{sub}_" # FILL IN!! 
+                analyze_all_channels(sub, raw_path, apply_detrending, include_n3, subject_dir)
                 subject_duration = time.time() - subject_start_time
                 processed_subjects.append(sub)
                 print(f"✓ Successfully processed subject {sub} in {subject_duration/60:.2f} minutes")
