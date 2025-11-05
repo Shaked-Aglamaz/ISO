@@ -3,7 +3,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import yasa
-from scipy.signal import hilbert, detrend, filtfilt
+from scipy.signal import hilbert, detrend
+from scipy.signal.windows import hann
+from scipy.ndimage import uniform_filter1d
 from scipy.optimize import curve_fit
 from scipy.integrate import simpson
 from scipy.interpolate import interp1d
@@ -163,11 +165,33 @@ class SpindleAnalyzer:
 
     @staticmethod
     def compute_envelope(data):
-        """Compute amplitude envelope using Hilbert transform and recenter around 0."""
+        """
+        Compute raw amplitude envelope using Hilbert transform.
+        Returns the amplitude envelope without any mean subtraction or recentering.
+        """
         analytic_signal = hilbert(data)
         amplitude_envelope = np.abs(analytic_signal)
-        amplitude_envelope = amplitude_envelope - np.mean(amplitude_envelope)
         return amplitude_envelope
+
+    @staticmethod
+    def moving_average_zero_phase(x, win_samp):
+        """
+        Subtract a centered moving-average trend using uniform_filter1d.
+        Uses scipy.ndimage.uniform_filter1d for O(N) performance with excellent edge handling.
+        The 'reflect' mode mirrors the signal at edges to avoid artifacts.
+        """
+        # Compute centered moving average - O(N) using cumulative sum internally
+        trend = uniform_filter1d(x, size=win_samp, mode='reflect')
+        return x - trend
+    
+    @staticmethod
+    def apply_hann_taper(signal):
+        """
+        Apply Hann window to signal to reduce spectral leakage in FFT.
+        The Hann window smoothly tapers the signal to zero at both ends.
+        """
+        window = hann(len(signal))
+        return signal * window
     
     def plot_sigma_envelope(self, times, data, amplitude_envelope, start_time, duration):
         spindle_mask = (self.spindles_df['Start'] >= start_time) & (self.spindles_df['Start'] <= start_time + duration)
@@ -234,8 +258,20 @@ class SpindleAnalyzer:
             return amplitude_envelope, False
     
     def compute_fft_power_spectrum(self, amplitude_envelope, min_freq=0, max_freq=0.1, bout_id=None):
-        """Compute FFT power spectrum with detrending (per-bout relative power only)."""
+        """
+        Compute FFT power spectrum with optional linear detrending and normalization.
         
+        Parameters:
+        -----------
+        amplitude_envelope : array
+            Envelope signal (after MA subtraction, recentering, and Hann tapering)
+        min_freq, max_freq : float
+            Frequency range for output
+        bout_id : int, optional
+            Bout identifier for tracking detrended bouts
+        """
+        
+        # Optional linear detrending as safety net for exceptional low-freq artifacts
         if self.apply_detrending:
             amplitude_envelope, was_detrended = self.detect_low_frequency_artifacts(amplitude_envelope)
             if was_detrended and bout_id is not None:
@@ -246,8 +282,9 @@ class SpindleAnalyzer:
         x = freqs[mask]
         y = fft_power[mask]
         
-        # Per-bout normalization: divide by bout's mean power
+        # Normalization: divide by mean power in the frequency range
         y_relative = y / np.mean(y)
+        
         return x, y_relative
 
     def fit_gaussian_to_spectrum(self, x, y):
@@ -266,11 +303,38 @@ class SpindleAnalyzer:
         return fitted_params
 
     def analyze_single_bout(self, bout_info):
-        """Analyze single N2 bout: crop, filter sigma band, compute envelope, FFT."""
+        """
+        Analyze single bout using 8-step pipeline:
+        1. Crop and filter to sigma band (13-16 Hz)
+        2. Compute Hilbert envelope (raw amplitude)
+        3. Apply 250s moving-average subtraction
+        4. Recenter around zero
+        5. Apply Hann taper (windowing for FFT)
+        6. Compute FFT power spectrum (0-0.1 Hz)
+        7. Optional linear detrending for exceptional low-freq artifacts
+        8. Normalize to relative power using bout mean power
+        """
+        # Step 1: Crop and filter to sigma band
         bout_raw = self.target_raw.copy().crop(tmin=bout_info.start_time, tmax=bout_info.end_time)
         bout_sigma = bout_raw.filter(l_freq=self.low_freq, h_freq=self.high_freq)
         bout_data = bout_sigma.get_data()[0]
+        
+        # Step 2: Compute Hilbert envelope (raw amplitude)
         amplitude_envelope = self.compute_envelope(bout_data)
+        
+        # Step 3: Apply 250s moving-average subtraction
+        sfreq = bout_raw.info['sfreq']
+        ma_window_sec = 250
+        win_samp = int(round(ma_window_sec * sfreq))
+        amplitude_envelope = self.moving_average_zero_phase(amplitude_envelope, win_samp)
+        
+        # Step 4: Recenter around zero
+        amplitude_envelope = amplitude_envelope - np.mean(amplitude_envelope)
+        
+        # Step 5: Apply Hann taper
+        amplitude_envelope = self.apply_hann_taper(amplitude_envelope)
+        
+        # Steps 6-8: FFT with optional linear detrending and normalization
         x, y = self.compute_fft_power_spectrum(amplitude_envelope, bout_id=bout_info.id)
 
         bout_result = {
@@ -690,7 +754,7 @@ def analyze_all_channels(sub, raw_path, apply_detrending=True, include_n3=False,
         analyzer = run_channel_analysis(sub, raw_path, channel, output_dir, apply_detrending, include_n3)
         aggregate_channel_results(analyzer, channel, channel_results, all_bout_results)
 
-    save_multi_channel_summary(sub, channel_results, all_bout_results)
+    save_multi_channel_summary(sub, channel_results, all_bout_results, subject_dir)
 
 
 def get_all_subjects(main_dir):
@@ -755,11 +819,14 @@ def aggregate_channel_results(analyzer, channel_name, channel_results, all_bout_
         all_bout_results.append(bout_df)
 
 
-def save_multi_channel_summary(subject_id, channel_results, all_bout_results):
+def save_multi_channel_summary(subject_id, channel_results, all_bout_results, subject_dir=None):
     """Save aggregated results from multi-channel analysis."""
+    # Use subject_dir if provided, otherwise fall back to subject_id folder at root
+    output_base = subject_dir if subject_dir else subject_id
+    
     if channel_results:
         results_df = pd.DataFrame(channel_results)
-        summary_file = f"{subject_id}/{subject_id}_all_channels_summary.csv"
+        summary_file = f"{output_base}/{subject_id}_all_channels_summary.csv"
         results_df.to_csv(summary_file, index=False)
         print(f"\n{'='*60}")
         print(f"SUMMARY: Saved results for {len(channel_results)} channels to {summary_file}")
@@ -767,7 +834,7 @@ def save_multi_channel_summary(subject_id, channel_results, all_bout_results):
     
     if all_bout_results:
         all_bouts_df = pd.concat(all_bout_results, ignore_index=True)
-        all_bouts_file = f"{subject_id}/{subject_id}_all_bouts_details.csv"
+        all_bouts_file = f"{output_base}/{subject_id}_all_bouts_details.csv"
         all_bouts_df.to_csv(all_bouts_file, index=False)
         print(f"DETAILED: Saved {len(all_bouts_df)} individual bout results to {all_bouts_file}")
 
@@ -800,7 +867,6 @@ def process_all_subjects(apply_detrending=True, include_n3=False):
     # subject_dirs = get_all_subjects(f"{BASE_DIR}/control_clean/")
     # if not subject_dirs:
     #     return
-    subject_dirs = ["RD43"]
 
     subject_dirs = ["RD43"]
     processed_subjects = []
@@ -814,7 +880,7 @@ def process_all_subjects(apply_detrending=True, include_n3=False):
         try:
             raw_path = find_subject_fif_file(sub)
             if raw_path:
-                subject_dir = f"{sub}_" # FILL IN!! 
+                subject_dir = f"{sub}_MA_Hann_N2"
                 analyze_all_channels(sub, raw_path, apply_detrending, include_n3, subject_dir)
                 subject_duration = time.time() - subject_start_time
                 processed_subjects.append(sub)
@@ -878,10 +944,9 @@ def focused_electrode_analysis(target_subject, target_electrode, output_dir, app
 def main():
     """Main function to run spectral analysis."""
     
-    process_all_subjects(apply_detrending=True, include_n3=True)  # OPTION 1: Process all subjects
+    process_all_subjects(apply_detrending=True, include_n3=False)  # OPTION 1: Process all subjects
     
-    # focused_electrode_analysis(target_subject="RD43", target_electrode="E221", 
-    #                           output_dir="tmp/no_detrending", apply_detrending=False)
+    # focused_electrode_analysis(target_subject="RD43", target_electrode="E24", output_dir="tmp/MA_Hann", apply_detrending=True)
 
 
 if __name__ == "__main__":

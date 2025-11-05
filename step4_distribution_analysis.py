@@ -10,9 +10,10 @@ from config import BASE_DIR
 from step3_spectral import get_all_subjects
 from scipy.ndimage import uniform_filter1d
 
-def load_subject_data(subject_id):
+def load_subject_data(subject_id, dir=None):
     """Load channel summary data for a specific subject."""
-    summary_file = f"{subject_id}/{subject_id}_all_channels_summary.csv"
+    dir = dir if dir is not None else subject_id
+    summary_file = f"{dir}/{subject_id}_all_channels_summary.csv"
     
     if not os.path.exists(summary_file):
         print(f"Summary file not found for {subject_id}: {summary_file}")
@@ -188,11 +189,11 @@ def plot_boxplots_with_dots(df, output_dir, channel_name):
     print(f"Boxplot with subject dots saved to: {boxplot_path}")
 
 
-def load_and_combine_subject_data(subjects):
+def load_and_combine_subject_data(subjects, subject_dir=None):
     """Load and combine data from all subjects."""
     all_subject_data = []
     for subject in subjects:
-        subject_data = load_subject_data(subject)
+        subject_data = load_subject_data(subject, dir=subject_dir)
         if subject_data is not None:
             all_subject_data.append(subject_data)
     
@@ -205,12 +206,6 @@ def load_and_combine_subject_data(subjects):
 
 def filter_eeg_channels(combined_data):
     """Filter non-EEG channels and calculate channel averages, handling failed ISFS channels."""
-    specific_exclusions = {
-        'EL3006': ['E202', 'E88'],
-        'EL3005': ['E9'],
-        # 'RD43': ['E118', 'E110', "E39", "E41"]
-    }
-    
     eeg_data = combined_data.copy()
     
     # Handle channels that failed Gaussian fitting (missing ISFS)
@@ -222,12 +217,6 @@ def filter_eeg_channels(combined_data):
             if col in eeg_data.columns:
                 # Convert empty strings to NaN if they exist
                 eeg_data[col] = pd.to_numeric(eeg_data[col], errors='coerce')
-    
-    # Apply specific manual exclusions (completely remove these channels)
-    for subject, excluded_channels in specific_exclusions.items():
-        if subject in combined_data['subject'].values:
-            eeg_data = eeg_data[~((eeg_data['subject'] == subject) & (eeg_data['channel'].isin(excluded_channels)))]
-            print(f"  ℹ Topography: Excluded specific channels {excluded_channels} for subject {subject}")
     
     if len(eeg_data) == 0:
         print("No EEG channels found for topography")
@@ -429,7 +418,7 @@ def plot_single_topography(values, info, ax, metric_info, normalize=True, fig=No
     return mean_value
 
 
-def create_and_save_topography_figure(subjects, metrics, info, channel_averages, channel_names, normalize=True):
+def create_and_save_topography_figure(subjects, metrics, info, channel_averages, channel_names, normalize=True, subject_dir=None):
     """Create figure with all three topographical plots and save to file."""
     # Create figure with subplots, but reserve space for colorbars
     fig, axes = plt.subplots(3, 1, figsize=(10, 12))
@@ -439,7 +428,8 @@ def create_and_save_topography_figure(subjects, metrics, info, channel_averages,
         subject_name = subjects[0]
         norm_text = "(Normalized by mean across channels)" if normalize else "(Raw values)"
         title = f'Topographical Distribution - Subject {subject_name}\n{norm_text}'
-        output_dir = Path(subject_name)
+        # Use provided subject_dir if available, otherwise use subject name
+        output_dir = Path(subject_dir) if subject_dir is not None else Path(subject_name)
         suffix = "normalized" if normalize else "raw"
         filename = f"{subject_name}_topographies_{suffix}.png"
     else:
@@ -478,13 +468,13 @@ def create_and_save_topography_figure(subjects, metrics, info, channel_averages,
     print(f"Topographical plots saved to: {topo_path}")
 
 
-def plot_topographies(subjects, normalize=True):
+def plot_topographies(subjects, normalize=True, subject_dir=None):
     """Create topographical plots for the three spectral parameters with ISFS failure handling."""
     print(f"\n{'='*60}")
     print(f"TOPOGRAPHY ANALYSIS - {'Subject ' + subjects[0] if len(subjects) == 1 else f'{len(subjects)} Subjects'}")
     print(f"{'='*60}")
     
-    combined_data = load_and_combine_subject_data(subjects)
+    combined_data = load_and_combine_subject_data(subjects, subject_dir=subject_dir)
     if combined_data is None:
         return
     
@@ -524,7 +514,7 @@ def plot_topographies(subjects, normalize=True):
     print(f"\n🎨 Creating topographical plots...")
     print(f"   Normalization: {'Enabled' if normalize else 'Disabled'}")
     
-    create_and_save_topography_figure(subjects, metrics, info, channel_averages_filtered, channel_names, normalize=normalize)
+    create_and_save_topography_figure(subjects, metrics, info, channel_averages_filtered, channel_names, normalize=normalize, subject_dir=subject_dir)
     
     print(f"✅ Topography analysis completed")
 
@@ -550,7 +540,7 @@ def print_summary_statistics(df, channel_name):
         print(f"  Max: {data.max():.4f}")
 
 
-def plot_subject_all_channels_distributions(subjects, output_dir):
+def plot_subject_all_channels_distributions(subjects, dir=None):
     """Plot distributions for all channels within each subject."""
     metrics = {
         'peak_frequency': {'name': 'Peak Frequency', 'unit': 'Hz'},
@@ -562,7 +552,7 @@ def plot_subject_all_channels_distributions(subjects, output_dir):
         print(f"\nProcessing distributions for subject {subject}...")
         
         # Load subject data
-        subject_data = load_subject_data(subject)
+        subject_data = load_subject_data(subject, dir)
         if subject_data is None:
             print(f"  ✗ No data found for subject {subject}")
             continue
@@ -617,10 +607,10 @@ def plot_subject_all_channels_distributions(subjects, output_dir):
         
         plt.tight_layout()
         
-        # Save plot in the subject's own directory
-        subject_output_dir = Path(subject)
-        subject_output_dir.mkdir(exist_ok=True)
-        plot_path = subject_output_dir / f"{subject}_all_channels_distributions.png"
+        if dir is None:
+            dir = Path(subject)
+        dir.mkdir(exist_ok=True)
+        plot_path = dir / f"{subject}_all_channels_distributions.png"
         plt.savefig(plot_path, dpi=300, bbox_inches='tight')
         plt.close()
         
@@ -631,12 +621,6 @@ def plot_subject_all_channels_distributions(subjects, output_dir):
 
 def load_and_process_all_channels_data(subjects):
     """Load, filter, and average all channels data across subjects."""
-    # Hardcoded specific channel exclusions
-    specific_exclusions = {
-        'EL3006': ['E202', 'E88'],
-        'EL3005': ['E9']
-    }
-    
     print(f"\nProcessing data from all channels across {len(subjects)} subjects...")
     
     # Collect all data
@@ -649,12 +633,6 @@ def load_and_process_all_channels_data(subjects):
             continue
         
         eeg_data = subject_data.copy()
-        
-        # Apply hardcoded specific exclusions
-        if subject in specific_exclusions:
-            excluded_for_subject = specific_exclusions[subject]
-            eeg_data = eeg_data[~eeg_data['channel'].isin(excluded_for_subject)]
-            print(f"  ℹ {subject}: Excluded specific channels {excluded_for_subject}")
         
         if len(eeg_data) > 0:
             eeg_data['subject'] = subject  # Add subject column
@@ -828,13 +806,6 @@ def plot_group_spectral_power(subjects, output_dir, target_channel, smoothing_wi
         If True, average across all channels per subject
         If False, analyze only the target_channel
     """
-    from scipy.ndimage import uniform_filter1d
-    
-    # Hardcoded specific channel exclusions
-    specific_exclusions = {
-        'EL3006': ['E202', 'E88'],
-        'EL3005': ['E9']
-    }
     
     if aggregate_channels:
         print(f"\nCollecting spectral data for {len(subjects)} subjects (aggregating across all channels)...")
@@ -855,10 +826,6 @@ def plot_group_spectral_power(subjects, output_dir, target_channel, smoothing_wi
             for spectral_file in spectral_files:
                 # Extract channel name from file path
                 channel = spectral_file.stem.split('_')[1]  # e.g., EL3004_VREF_spectral_power -> VREF
-                
-                # Apply hardcoded specific exclusions
-                if subject in specific_exclusions and channel in specific_exclusions[subject]:
-                    continue
                 
                 try:
                     df_channel = pd.read_csv(spectral_file)
@@ -999,15 +966,145 @@ def plot_group_spectral_power(subjects, output_dir, target_channel, smoothing_wi
     print(f"✓ Smoothing applied: {smoothing_window}-point window" if smoothing_window > 1 else "✓ No smoothing applied")
 
 
-def main():
-    """Run distribution analysis across all subjects."""
-    subjects = get_all_subjects(f"{BASE_DIR}/control_clean/")
-    if not subjects:
-        print("No subjects found!")
+def plot_single_subject_all_channels_spectral_power(subject_id, subject_dir, smoothing_window=5):
+    """
+    Plot mean spectral power across all channels for a single subject.
+    Shows mean ± SD across channels to visualize spatial variability.
+    
+    Parameters:
+    -----------
+    subject_id : str
+        Subject identifier (e.g., "RD43")
+    subject_dir : str or Path
+        Directory where subject data is stored and where plot will be saved
+    smoothing_window : int
+        Window size for smoothing (default: 5)
+    """
+    print(f"\n{'='*60}")
+    print(f"Single Subject Spectral Power Analysis - {subject_id}")
+    print(f"{'='*60}")
+    
+    subject_dir = Path(subject_dir)
+    
+    # Find all spectral power CSV files for this subject
+    spectral_pattern = f"{subject_id}_*_output/{subject_id}_*_spectral_power.csv"
+    spectral_files = list(subject_dir.glob(spectral_pattern))
+    
+    if not spectral_files:
+        print(f"✗ No spectral power files found for subject {subject_id}")
+        print(f"  Searched in: {subject_dir}/{spectral_pattern}")
         return
     
-    output_dir = Path("distribution_analysis")
-    output_dir.mkdir(exist_ok=True)
+    print(f"✓ Found {len(spectral_files)} channel files")
+    
+    # Load all channel data
+    channel_data = []
+    channel_names = []
+    
+    for spectral_file in spectral_files:
+        # Extract channel name from file path
+        channel = spectral_file.stem.split('_')[1]  # e.g., RD43_E1_spectral_power -> E1
+        
+        try:
+            df = pd.read_csv(spectral_file)
+            channel_data.append(df)
+            channel_names.append(channel)
+        except Exception as e:
+            print(f"  ✗ Error loading {spectral_file.name}: {e}")
+    
+    if not channel_data:
+        print(f"✗ No valid channel data loaded")
+        return
+    
+    print(f"✓ Successfully loaded {len(channel_data)} channels")
+    
+    # Find common frequency range across all channels
+    common_freqs = channel_data[0]['frequency'].values
+    all_powers = []
+    
+    for df_channel in channel_data:
+        # Interpolate to common frequency grid if needed
+        if not np.array_equal(df_channel['frequency'].values, common_freqs):
+            interp_func = interp1d(df_channel['frequency'], df_channel['mean_power'], 
+                                  bounds_error=False, fill_value='extrapolate')
+            power = interp_func(common_freqs)
+        else:
+            power = df_channel['mean_power'].values
+        all_powers.append(power)
+    
+    # Convert to numpy array and compute statistics across channels
+    power_matrix = np.array(all_powers)  # Shape: (n_channels, n_frequencies)
+    channel_mean = np.mean(power_matrix, axis=0)
+    channel_std = np.std(power_matrix, axis=0)
+    
+    # Apply smoothing
+    if smoothing_window > 1:
+        channel_mean_smooth = uniform_filter1d(channel_mean, size=smoothing_window)
+        channel_std_smooth = uniform_filter1d(channel_std, size=smoothing_window)
+        smooth_label = f" (smoothed, window={smoothing_window})"
+    else:
+        channel_mean_smooth = channel_mean
+        channel_std_smooth = channel_std
+        smooth_label = ""
+    
+    # Create the plot
+    plt.figure(figsize=(12, 8))
+    
+    # Main line: mean across channels
+    plt.plot(common_freqs, channel_mean_smooth, 'b-', linewidth=2.5, 
+            label=f'Mean across channels{smooth_label}')
+    
+    # Standard deviation bands with dotted lines
+    plt.plot(common_freqs, channel_mean_smooth + channel_std_smooth, 'b:', 
+            linewidth=1.5, alpha=0.7, label='+1 SD')
+    plt.plot(common_freqs, channel_mean_smooth - channel_std_smooth, 'b:', 
+            linewidth=1.5, alpha=0.7, label='-1 SD')
+    
+    # Shaded area for standard deviation
+    plt.fill_between(common_freqs, 
+                     channel_mean_smooth - channel_std_smooth,
+                     channel_mean_smooth + channel_std_smooth,
+                     alpha=0.2, color='blue', label='±1 SD region (spatial variability)')
+    
+    # Find and mark peak frequency
+    peak_idx = np.argmax(channel_mean_smooth)
+    peak_freq = common_freqs[peak_idx]
+    peak_power = channel_mean_smooth[peak_idx]
+    
+    # Add vertical dotted line at peak frequency
+    plt.axvline(peak_freq, color='red', linestyle=':', linewidth=2, 
+                label=f'Peak at {peak_freq:.4f} Hz')
+    
+    # Formatting
+    plt.xlabel('Frequency (Hz)', fontsize=12)
+    plt.ylabel('Relative Power (AU)', fontsize=12)
+    plt.title(f'Infraslow Fluctuations of Sigma Power (ISFS) - Subject {subject_id}\n'
+              f'Mean across {len(channel_data)} channels', fontsize=14)
+    plt.legend(fontsize=11)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    
+    # Save the plot to subject directory
+    plot_path = subject_dir / f"{subject_id}_all_channels_spectral_power.png"
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"\n✓ Spectral power plot saved to: {plot_path}")
+    print(f"✓ Analyzed {len(channel_data)} channels")
+    print(f"✓ Frequency range: {common_freqs[0]:.4f} - {common_freqs[-1]:.4f} Hz")
+    print(f"✓ Smoothing applied: {smoothing_window}-point window" if smoothing_window > 1 else "✓ No smoothing applied")
+    print(f"{'='*60}\n")
+
+
+def main():
+    """Run distribution analysis across all subjects."""
+    # subjects = get_all_subjects(f"{BASE_DIR}/control_clean/")
+    # if not subjects:
+    #     print("No subjects found!")
+    #     return
+    subjects = ["RD43"]
+    
+    subject_dir = Path("RD43_MA_Hann_N2")
     
     # df = collect_all_data(subjects, target_channel)
     # if df is None:
@@ -1018,11 +1115,14 @@ def main():
     # plot_combined_distributions(df, output_dir, target_channel)
     # plot_boxplots_with_dots(df, output_dir, target_channel)
     
-    # plot_topographies(subjects, normalize=True)
-    # plot_topographies(subjects, normalize=False)
+    # Topographies with subject_dir
+    # plot_topographies(subjects, normalize=True, subject_dir=subject_dir)
+    # plot_topographies(subjects, normalize=False, subject_dir=subject_dir)
     
     # Individual subject all-channels distributions
-    plot_subject_all_channels_distributions(subjects, output_dir)
+    # plot_subject_all_channels_distributions(subjects, subject_dir)
+    
+    plot_single_subject_all_channels_spectral_power(subjects[0], subject_dir, smoothing_window=5)
     
     # Combined all-channels distribution across all subjects
     # plot_combined_all_channels_distributions(subjects, output_dir)
