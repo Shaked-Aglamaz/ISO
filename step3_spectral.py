@@ -15,6 +15,7 @@ import time
 import glob
 import os
 import re
+import gc
 from config import BASE_DIR, FACE_ELECTRODES, NECK_ELECTRODES
 
 mne.set_log_level("error")
@@ -36,13 +37,13 @@ class BoutInfo:
 
 
 class SpindleAnalyzer:
-    def __init__(self, subject_id, raw_path, low_freq=13, high_freq=16, target_channels=['VREF'], 
+    def __init__(self, subject_id, raw_path, low_freq=13, high_freq=16, target_channel='VREF', 
                 output_dir=None, min_duration=280, apply_detrending=True, include_n3=False):
         self.subject_id = subject_id
         self.low_freq = low_freq
         self.high_freq = high_freq
-        self.target_channels = target_channels
-        self.output_dir = output_dir if output_dir else f"{subject_id}/{subject_id}_{target_channels[0]}_output"
+        self.target_channel = target_channel
+        self.output_dir = output_dir if output_dir else f"{subject_id}/{subject_id}_{target_channel}_output"
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
         self._add_to_gitignore(subject_id)
         self.raw_path = raw_path
@@ -60,6 +61,8 @@ class SpindleAnalyzer:
         # For relative spectral power computation
         self._frequencies = []
         self._all_power_spectra = []
+        self.channel_result = None
+        self.fitted_params = None
 
     def _add_to_gitignore(self, subject_id):
         """Add subject directory to .gitignore."""
@@ -95,7 +98,7 @@ class SpindleAnalyzer:
             print("WARNING: No 'BAD' annotations found in the data.")
             print(f"Available annotations: {annotation_desc}")
         
-        self.target_raw = raw_data.pick_channels(self.target_channels)
+        self.target_raw = raw_data.pick_channels([self.target_channel])
         self.target_raw.load_data()
 
     def detect_spindles(self, plot_raw=False):
@@ -207,7 +210,7 @@ class SpindleAnalyzer:
 
         ax.set_xlabel("Time (s)")
         ax.set_ylabel('Amplitude (µV)')
-        ax.set_title(f"Envelope of {self.target_channels[0]} ({self.low_freq}-{self.high_freq} Hz)")
+        ax.set_title(f"Envelope of {self.target_channel} ({self.low_freq}-{self.high_freq} Hz)")
         ax.set_xlim(times[0], times[-1])
         ax.set_ylim(data.min() - 10, data.max() + 10)
         
@@ -218,7 +221,7 @@ class SpindleAnalyzer:
         
         plt.legend()
         plt.tight_layout()
-        plot_path = Path(self.output_dir) / f"{self.subject_id}_{self.target_channels[0]}_sigma_envelope.png"
+        plot_path = Path(self.output_dir) / f"{self.subject_id}_{self.target_channel}_sigma_envelope.png"
         plt.savefig(plot_path, dpi=300)
         plt.close()
         print(f"Segment plot saved to: {plot_path}")
@@ -355,7 +358,7 @@ class SpindleAnalyzer:
             'relative_power': power
         })
         
-        csv_filename = f"{self.subject_id}_{self.target_channels[0]}_bout_{bout_info.id:02d}_fft.csv"
+        csv_filename = f"{self.subject_id}_{self.target_channel}_bout_{bout_info.id:02d}_fft.csv"
         csv_path = Path(self.output_dir) / csv_filename
         with open(csv_path, 'w', encoding='utf-8') as f:
             f.write(f"# Bout ID: {bout_info.id}\n")
@@ -378,7 +381,7 @@ class SpindleAnalyzer:
                          baseline_power=None, show_popup=False):
         """Unified FFT spectrum plotting function for all scenarios."""
         if power_label is None:
-            power_label = f'Relative Power ({self.target_channels[0]})'
+            power_label = f'Relative Power ({self.target_channel})'
         
         plt.figure(figsize=(10, 6))
         
@@ -426,7 +429,7 @@ class SpindleAnalyzer:
         plt.tight_layout()
         
         # 5. Save and show
-        plot_path = Path(self.output_dir) / f"{self.subject_id}_{self.target_channels[0]}_{filename_suffix}.png"
+        plot_path = Path(self.output_dir) / f"{self.subject_id}_{self.target_channel}_{filename_suffix}.png"
         plt.savefig(plot_path, dpi=300)
         
         if show_popup:
@@ -443,7 +446,7 @@ class SpindleAnalyzer:
         
             # Check if spindle detection failed
             if self.spindles_df is None:
-                message = f"{self.subject_id} - No spindles found in channel {self.target_channels[0]}"
+                message = f"{self.subject_id} - No spindles found in channel {self.target_channel}"
                 print(message)
                 notes_dir = Path("notes")
                 notes_dir.mkdir(exist_ok=True)
@@ -493,8 +496,7 @@ class SpindleAnalyzer:
                 baseline_corrected = self.apply_baseline_correction(frequencies, mean_power)
                 
                 # Step 3: Gaussian fitting to baseline-corrected spectrum
-                self.channel_result, self.fitted_params = self.fit_gaussian_to_mean_spectrum(
-                    frequencies, baseline_corrected)
+                self.fit_gaussian_to_mean_spectrum(frequencies, baseline_corrected)
                 
                 # Store baseline-corrected data for plotting
                 self._baseline_corrected_power = baseline_corrected
@@ -539,15 +541,15 @@ class SpindleAnalyzer:
         baseline_corrected = mean_power - baseline_power
         return baseline_corrected
     
-    def fit_gaussian_to_mean_spectrum(self, frequencies, baseline_corrected_power):
+    def fit_gaussian_to_mean_spectrum(self, frequencies, power):
         """Fit Gaussian to baseline-corrected mean spectrum (per-channel analysis)."""
         try:
-            fitted_params = self.fit_gaussian_to_spectrum(frequencies, baseline_corrected_power)
+            fitted_params = self.fit_gaussian_to_spectrum(frequencies, power)
             if fitted_params is None:
                 failure_reason = "Invalid parameters (negative peak frequency)"
                 print(f"Gaussian fitting failed - {failure_reason}")
                 self.gaussian_fit_failure_reason = failure_reason
-                return None, None
+                return
             
             peak_amplitude, peak_frequency, bandwidth_sigma = fitted_params
             
@@ -561,7 +563,7 @@ class SpindleAnalyzer:
             
             # Store channel-level results
             channel_result = {
-                'channel': self.target_channels[0],
+                'channel': self.target_channel,
                 'peak_frequency': peak_frequency,
                 'bandwidth': 2 * bandwidth_sigma,  # Convert sigma to full bandwidth
                 'auc': actual_auc,  # Actual AUC of ±1σ area under Gaussian curve
@@ -569,19 +571,14 @@ class SpindleAnalyzer:
                 'bandwidth_sigma': bandwidth_sigma
             }
             
-            print(f"Channel {self.target_channels[0]} Gaussian fit:")
-            print(f"  Peak frequency: {peak_frequency:.3f} Hz")
-            print(f"  Bandwidth (2σ): {2 * bandwidth_sigma:.3f} Hz") 
-            print(f"  Peak amplitude: {peak_amplitude:.3f}")
-            
-            return channel_result, fitted_params
+            self.channel_result, self.fitted_params = channel_result, fitted_params
             
         except Exception as e:
             failure_reason = f"Exception during fitting: {str(e)}"
             print(f"Failed to fit Gaussian to mean spectrum: {e}")
             self.gaussian_fit_failure_reason = failure_reason
-            return None, None
-    
+            return
+
     def plot_baseline_correction_preview(self, frequencies=None, mean_power=None):
         """Plot mean relative power before baseline correction, highlighting the subtraction area."""
         if frequencies is None or mean_power is None:
@@ -596,7 +593,7 @@ class SpindleAnalyzer:
         baseline_power = np.mean(mean_power[baseline_mask]) if np.any(baseline_mask) else 0
         
         title = (f'Pre-Baseline Correction - Subject {self.subject_id}\n'
-                f'Channel {self.target_channels[0]} ({self.low_freq}-{self.high_freq} Hz envelope)')
+                f'Channel {self.target_channel} ({self.low_freq}-{self.high_freq} Hz envelope)')
         power_label = 'Mean Relative Power (Before Correction)'
         filename_suffix = "baseline_correction_preview"
         
@@ -633,7 +630,7 @@ class SpindleAnalyzer:
             title_suffix += ' - Gaussian Fit Failed'
         
         title = (f'Mean Spectral Power - Subject {self.subject_id} {title_suffix}\n'
-                f'Channel {self.target_channels[0]} ({self.low_freq}-{self.high_freq} Hz envelope)')
+                f'Channel {self.target_channel} ({self.low_freq}-{self.high_freq} Hz envelope)')
         filename_suffix = "mean_spectral_power"
         
         self.plot_fft_spectrum(frequencies, plot_power, title, filename_suffix,
@@ -651,7 +648,7 @@ class SpindleAnalyzer:
                 'mean_power': plot_power, 
                 'std_power': std_values
             })
-            csv_path = Path(self.output_dir) / f"{self.subject_id}_{self.target_channels[0]}_spectral_power.csv"
+            csv_path = Path(self.output_dir) / f"{self.subject_id}_{self.target_channel}_spectral_power.csv"
             spectral_data.to_csv(csv_path, index=False)
             print(f"Spectral data (baseline corrected) saved to: {csv_path}")
         
@@ -668,7 +665,7 @@ class SpindleAnalyzer:
         # If Gaussian fitting failed, return basic info
         if self.results_df is not None and not self.results_df.empty:
             return {
-                'channel': self.target_channels[0],
+                'channel': self.target_channel,
                 'n_successful_bouts': len(self.results_df),
                 'gaussian_fit_failed': True
             }
@@ -681,7 +678,7 @@ class SpindleAnalyzer:
             return
         
         summary_lines = []
-        summary_lines.append(f"Analysis Summary for Subject {self.subject_id}, Channel {self.target_channels[0]}")
+        summary_lines.append(f"Analysis Summary for Subject {self.subject_id}, Channel {self.target_channel}")
         summary_lines.append("=" * 60)
         summary_lines.append(f"Frequency Range: {self.low_freq}-{self.high_freq} Hz")
         summary_lines.append(f"Total Spindles Detected: {len(self.spindles_df) if self.spindles_df is not None else 0}")
@@ -721,9 +718,11 @@ class SpindleAnalyzer:
             summary_lines.append("-" * 60)
             summary_lines.append("STATUS: FAILED")
             if hasattr(self, 'gaussian_fit_failure_reason'):
-                summary_lines.append(f"FAILURE REASON: {self.gaussian_fit_failure_reason}")
+                summary_lines.append(f"REASON: {self.gaussian_fit_failure_reason}")
             else:
-                summary_lines.append("FAILURE REASON: Unknown - no fitting attempted or results unavailable")
+                summary_lines.append("REASON: Unknown - no fitting attempted or results unavailable")
+            summary_lines.append("")
+            summary_lines.append("NOTE: Channel excluded from group-level analysis and computations.")
         
         if self.bout_errors:
             summary_lines.append("")
@@ -734,7 +733,7 @@ class SpindleAnalyzer:
                 error_msg = str(error)
                 summary_lines.append(f"Bout {bout_info.id} ({bout_info.start_time:.1f}-{bout_info.end_time:.1f}s): {error_type} - {error_msg}")
         
-        summary_path = Path(self.output_dir) / f"{self.subject_id}_{self.target_channels[0]}_analysis_summary.txt"
+        summary_path = Path(self.output_dir) / f"{self.subject_id}_{self.target_channel}_analysis_summary.txt"
         with open(summary_path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(summary_lines))
 
@@ -743,6 +742,7 @@ def analyze_all_channels(sub, raw_path, apply_detrending=True, include_n3=False,
     excluded_channels = set(FACE_ELECTRODES + NECK_ELECTRODES)
     valid_channels = [ch for ch in raw.ch_names if ch not in excluded_channels and 'EMG' not in ch]
     
+    total_channels = len(valid_channels)
     channel_results = []
     all_bout_results = []
     for channel in valid_channels:
@@ -753,8 +753,15 @@ def analyze_all_channels(sub, raw_path, apply_detrending=True, include_n3=False,
         output_dir = f"{subject_dir}/{sub}_{channel}_output" if subject_dir else None
         analyzer = run_channel_analysis(sub, raw_path, channel, output_dir, apply_detrending, include_n3)
         aggregate_channel_results(analyzer, channel, channel_results, all_bout_results)
+        
+        # Clean up analyzer to free memory
+        del analyzer
+    
+    # Close the raw object and force garbage collection
+    raw.close()
+    del raw
 
-    save_multi_channel_summary(sub, channel_results, all_bout_results, subject_dir)
+    save_multi_channel_summary(sub, channel_results, all_bout_results, subject_dir, total_channels)
 
 
 def get_all_subjects(main_dir):
@@ -795,7 +802,7 @@ def find_subject_fif_file(subject_id):
 def run_channel_analysis(subject_id, raw_path, channel, output_dir=None, apply_detrending=True, include_n3=False):
     """Run complete analysis pipeline for a single channel."""
     analyzer = SpindleAnalyzer(subject_id, raw_path, low_freq=13, high_freq=16, 
-                             target_channels=[channel], output_dir=output_dir, 
+                             target_channel=channel, output_dir=output_dir, 
                              apply_detrending=apply_detrending, include_n3=include_n3)
     analyzer.analyze_all_bouts()
     analyzer.get_summary()
@@ -808,9 +815,13 @@ def aggregate_channel_results(analyzer, channel_name, channel_results, all_bout_
     """Aggregate a channel's analysis results for multi-channel processing."""
     avg_metrics = analyzer.get_averaged_metrics()
     
-    if avg_metrics is not None:
+    # Only include channels that meet ISFS detection criteria
+    if avg_metrics is not None and not avg_metrics.get('gaussian_fit_failed', False):
         channel_results.append(avg_metrics)
+    else:
+        print(f"  ✗ Channel {channel_name} excluded from group analysis (no ISFS or fit failed)")
     
+    # Still save bout-level results for all channels for reference
     if analyzer.results_df is not None and not analyzer.results_df.empty:
         bout_df = analyzer.results_df.copy()
         bout_df['channel'] = channel_name
@@ -819,7 +830,7 @@ def aggregate_channel_results(analyzer, channel_name, channel_results, all_bout_
         all_bout_results.append(bout_df)
 
 
-def save_multi_channel_summary(subject_id, channel_results, all_bout_results, subject_dir=None):
+def save_multi_channel_summary(subject_id, channel_results, all_bout_results, subject_dir=None, total_channels=None):
     """Save aggregated results from multi-channel analysis."""
     # Use subject_dir if provided, otherwise fall back to subject_id folder at root
     output_base = subject_dir if subject_dir else subject_id
@@ -827,9 +838,41 @@ def save_multi_channel_summary(subject_id, channel_results, all_bout_results, su
     if channel_results:
         results_df = pd.DataFrame(channel_results)
         summary_file = f"{output_base}/{subject_id}_all_channels_summary.csv"
-        results_df.to_csv(summary_file, index=False)
+        
+        # Calculate ISFS detection statistics
+        channels_with_isfs = len(channel_results)
+        channels_excluded = total_channels - channels_with_isfs if total_channels else 0
+        percentage_with_isfs = (channels_with_isfs / total_channels * 100) if total_channels else 0
+        
+        # Write header comments with summary statistics
+        with open(summary_file, 'w', encoding='utf-8') as f:
+            f.write(f"# Subject: {subject_id}\n")
+            f.write(f"# ISFS Detection Summary:\n")
+            if total_channels:
+                f.write(f"#   Total valid channels analyzed: {total_channels}\n")
+                f.write(f"#   Channels with ISFS detected: {channels_with_isfs} ({percentage_with_isfs:.1f}%)\n")
+                f.write(f"#   Channels excluded (no ISFS): {channels_excluded} ({100-percentage_with_isfs:.1f}%)\n")
+            else:
+                f.write(f"#   Channels with ISFS detected: {channels_with_isfs}\n")
+            f.write("#\n")
+        
+        # Append the dataframe
+        results_df.to_csv(summary_file, mode='a', index=False)
+        
         print(f"\n{'='*60}")
-        print(f"SUMMARY: Saved results for {len(channel_results)} channels to {summary_file}")
+        print(f"SUMMARY: Saved results for {channels_with_isfs} channels WITH ISFS to {summary_file}")
+        if total_channels:
+            print(f"         Total channels analyzed: {total_channels}")
+            print(f"         ISFS detected: {channels_with_isfs}/{total_channels} ({percentage_with_isfs:.1f}%)")
+            print(f"         Excluded: {channels_excluded}/{total_channels} ({100-percentage_with_isfs:.1f}%)")
+        print(f"{'='*60}")
+    else:
+        print(f"\n{'='*60}")
+        print(f"WARNING: No channels with detected ISFS for subject {subject_id}")
+        if total_channels:
+            print(f"         Total channels analyzed: {total_channels}")
+            print(f"         All {total_channels} channels excluded (no ISFS detected)")
+        print(f"         No summary file created.")
         print(f"{'='*60}")
     
     if all_bout_results:
@@ -837,6 +880,7 @@ def save_multi_channel_summary(subject_id, channel_results, all_bout_results, su
         all_bouts_file = f"{output_base}/{subject_id}_all_bouts_details.csv"
         all_bouts_df.to_csv(all_bouts_file, index=False)
         print(f"DETAILED: Saved {len(all_bouts_df)} individual bout results to {all_bouts_file}")
+        print(f"          (Includes all channels for reference)")
 
 
 def save_focused_analysis_results(analyzer, subject_id, channel_name, output_dir):
@@ -880,11 +924,15 @@ def process_all_subjects(apply_detrending=True, include_n3=False):
         try:
             raw_path = find_subject_fif_file(sub)
             if raw_path:
-                subject_dir = f"{sub}_MA_Hann_N2"
+                stages = "N2N3" if include_n3 else "N2"
+                subject_dir = f"{sub}_{stages}_gauss_detrend"
                 analyze_all_channels(sub, raw_path, apply_detrending, include_n3, subject_dir)
                 subject_duration = time.time() - subject_start_time
                 processed_subjects.append(sub)
                 print(f"✓ Successfully processed subject {sub} in {subject_duration/60:.2f} minutes")
+                
+                # Force garbage collection after each subject
+                gc.collect()
                 
             else:
                 subject_duration = time.time() - subject_start_time
@@ -944,7 +992,7 @@ def focused_electrode_analysis(target_subject, target_electrode, output_dir, app
 def main():
     """Main function to run spectral analysis."""
     
-    process_all_subjects(apply_detrending=True, include_n3=False)  # OPTION 1: Process all subjects
+    process_all_subjects(apply_detrending=True, include_n3=True)  # OPTION 1: Process all subjects
     
     # focused_electrode_analysis(target_subject="RD43", target_electrode="E24", output_dir="tmp/MA_Hann", apply_detrending=True)
 
