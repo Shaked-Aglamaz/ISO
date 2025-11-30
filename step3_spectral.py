@@ -395,7 +395,7 @@ class SpindleAnalyzer:
 
     def plot_fft_spectrum(self, frequencies, power_data, title, filename_suffix, 
                          power_label=None, show_gaussian=False, show_baseline_info=False, 
-                         baseline_power=None, show_popup=False):
+                         baseline_power=None, show_popup=False, show_threshold=False):
         """Unified FFT spectrum plotting function for all scenarios."""
         if power_label is None:
             power_label = f'Relative Power ({self.target_channel})'
@@ -437,7 +437,12 @@ class SpindleAnalyzer:
             plt.fill_between(x_fit[mask], y_fit[mask], color='#A23B72', alpha=0.15, 
                            label=f'±1σ Area (AUC={area:.3f})')
         
-        # 4. Standard plot formatting
+        # 4. ISFS threshold line (if available and requested)
+        if show_threshold and hasattr(self, 'isfs_threshold'):
+            plt.axhline(y=self.isfs_threshold, color='gray', linestyle='--', linewidth=1.5, 
+                       alpha=0.7, label=f'ISFS Threshold: {self.isfs_threshold:.3f} AU')
+        
+        # 5. Standard plot formatting
         plt.xlabel('Frequency (Hz)')
         plt.ylabel('Relative Power (AU)')
         plt.title(title)
@@ -445,7 +450,7 @@ class SpindleAnalyzer:
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         
-        # 5. Save and show
+        # 6. Save and show
         plot_path = Path(self.output_dir) / f"{self.subject_id}_{self.target_channel}_{filename_suffix}.png"
         plt.savefig(plot_path, dpi=300)
         
@@ -577,7 +582,20 @@ class SpindleAnalyzer:
             x2 = peak_frequency + bandwidth_sigma
             mask = (x_fit >= x1) & (x_fit <= x2)
             actual_auc = simpson(x=x_fit[mask], y=y_fit[mask])
-            
+
+            # ISFS detection condition
+            gaussian_std = np.std(y_fit)
+            isfs_threshold = 1.5 * gaussian_std
+            isfs_detected = peak_amplitude > isfs_threshold
+
+            # Store threshold for plotting (whether ISFS detected or not)
+            self.isfs_threshold = isfs_threshold
+
+            if not isfs_detected:
+                failure_reason = "ISFS not detected (peak amplitude below threshold)"
+                self.gaussian_fit_failure_reason = failure_reason
+                return
+
             # Store channel-level results
             channel_result = {
                 'channel': self.target_channel,
@@ -651,7 +669,7 @@ class SpindleAnalyzer:
         filename_suffix = "mean_spectral_power"
         
         self.plot_fft_spectrum(frequencies, plot_power, title, filename_suffix,
-                             power_label=power_label, show_gaussian=True)
+                             power_label=power_label, show_gaussian=True, show_threshold=True)
         
         # Save the baseline-corrected data
         if frequencies is not None and plot_power is not None:
@@ -926,11 +944,11 @@ def process_all_subjects(apply_detrending=True, include_n3=False):
     print(f"Detrending: {'ENABLED' if apply_detrending else 'DISABLED'}")
     print(f"{'='*80}\n")
     
-    # subject_dirs = get_all_subjects(f"{BASE_DIR}/control_clean/")
-    # if not subject_dirs:
-    #     return
+    subject_dirs = get_all_subjects(f"{BASE_DIR}/control_clean/")
+    if not subject_dirs:
+        return
 
-    subject_dirs = ["RD43"]
+    # subject_dirs = ["RD43"]
     processed_subjects = []
     failed_subjects = []
     for i, sub in enumerate(subject_dirs):
@@ -1012,7 +1030,7 @@ def main():
     
     # process_all_subjects(apply_detrending=True, include_n3=True)  # OPTION 1: Process all subjects
     
-    focused_electrode_analysis(target_subject="RD43", target_electrode="E24", output_dir="tmp/gauss_N2N3", apply_detrending=True, include_n3=True)
+    focused_electrode_analysis(target_subject="RD43", target_electrode="E24", output_dir="tmp/gauss_N2N3_with_thresh", apply_detrending=True, include_n3=True)
 
 
 if __name__ == "__main__":
