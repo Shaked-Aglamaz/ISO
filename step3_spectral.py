@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import yasa
 from scipy.signal import hilbert, detrend
 from scipy.signal.windows import hann
-from scipy.ndimage import uniform_filter1d
+from scipy.ndimage import uniform_filter1d, gaussian_filter1d
 from scipy.optimize import curve_fit
 from scipy.integrate import simpson
 from scipy.interpolate import interp1d
@@ -188,6 +188,24 @@ class SpindleAnalyzer:
         return x - trend
     
     @staticmethod
+    def gaussian_smoothing_zero_phase(x, sigma_sec, sfreq):
+        """
+        Subtract a zero-phase Gaussian-smoothed trend to remove ultra-slow drift.
+        This method uses Gaussian smoothing which provides superior frequency
+        response characteristics compared to boxcar moving average. The Gaussian kernel
+        has a smoother frequency response that better preserves the 0.004-0.01 Hz range
+        of interest while effectively removing ultra-slow drift below ~0.003 Hz.
+        """
+        
+        # Convert sigma from seconds to samples
+        sigma_samp = sigma_sec * sfreq
+        
+        # Apply Gaussian smoothing - 'reflect' mode mirrors signal at edges
+        trend = gaussian_filter1d(x, sigma=sigma_samp, mode='reflect')
+        
+        return x - trend
+    
+    @staticmethod
     def apply_hann_taper(signal):
         """
         Apply Hann window to signal to reduce spectral leakage in FFT.
@@ -310,7 +328,7 @@ class SpindleAnalyzer:
         Analyze single bout using 8-step pipeline:
         1. Crop and filter to sigma band (13-16 Hz)
         2. Compute Hilbert envelope (raw amplitude)
-        3. Apply 250s moving-average subtraction
+        3. Gaussian smoothing detrending
         4. Recenter around zero
         5. Apply Hann taper (windowing for FFT)
         6. Compute FFT power spectrum (0-0.1 Hz)
@@ -324,12 +342,11 @@ class SpindleAnalyzer:
         
         # Step 2: Compute Hilbert envelope (raw amplitude)
         amplitude_envelope = self.compute_envelope(bout_data)
-        
-        # Step 3: Apply 250s moving-average subtraction
+
+        # Step 3: Apply Gaussian smoothing detrending (σ = 50s) to remove ultra-slow drift
         sfreq = bout_raw.info['sfreq']
-        ma_window_sec = 250
-        win_samp = int(round(ma_window_sec * sfreq))
-        amplitude_envelope = self.moving_average_zero_phase(amplitude_envelope, win_samp)
+        sigma_sec = 50  # Standard deviation of Gaussian kernel in seconds
+        amplitude_envelope = self.gaussian_smoothing_zero_phase(amplitude_envelope, sigma_sec, sfreq)
         
         # Step 4: Recenter around zero
         amplitude_envelope = amplitude_envelope - np.mean(amplitude_envelope)
@@ -682,7 +699,8 @@ class SpindleAnalyzer:
         summary_lines.append("=" * 60)
         summary_lines.append(f"Frequency Range: {self.low_freq}-{self.high_freq} Hz")
         summary_lines.append(f"Total Spindles Detected: {len(self.spindles_df) if self.spindles_df is not None else 0}")
-        summary_lines.append(f"Total N2 Bouts Found: {len(self.n2_bouts)}")
+        bouts = "N2/N3" if self.include_n3 else "N2"
+        summary_lines.append(f"Total {bouts} Bouts Found: {len(self.n2_bouts)}")
         summary_lines.append(f"Failed Bouts: {len(self.bout_errors)}")
         summary_lines.append(f"Low-Frequency Detrended Bouts: {len(self.detrended_bouts)}")
         if self.detrended_bouts:
@@ -992,9 +1010,9 @@ def focused_electrode_analysis(target_subject, target_electrode, output_dir, app
 def main():
     """Main function to run spectral analysis."""
     
-    process_all_subjects(apply_detrending=True, include_n3=True)  # OPTION 1: Process all subjects
+    # process_all_subjects(apply_detrending=True, include_n3=True)  # OPTION 1: Process all subjects
     
-    # focused_electrode_analysis(target_subject="RD43", target_electrode="E24", output_dir="tmp/MA_Hann", apply_detrending=True)
+    focused_electrode_analysis(target_subject="RD43", target_electrode="E24", output_dir="tmp/gauss_N2N3", apply_detrending=True, include_n3=True)
 
 
 if __name__ == "__main__":
