@@ -20,7 +20,7 @@ def load_subject_data(subject_id, dir=None):
         return None
     
     try:
-        df = pd.read_csv(summary_file)
+        df = pd.read_csv(summary_file, comment='#')
         df['subject'] = subject_id  # Add subject ID column
         return df
     except Exception as e:

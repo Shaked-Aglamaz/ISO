@@ -45,7 +45,7 @@ class SpindleAnalyzer:
         self.target_channel = target_channel
         self.output_dir = output_dir if output_dir else f"{subject_id}/{subject_id}_{target_channel}_output"
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
-        self._add_to_gitignore(subject_id)
+        self._add_to_gitignore(Path(self.output_dir).parent)
         self.raw_path = raw_path
         self.min_duration = min_duration
         self.apply_detrending = apply_detrending
@@ -94,8 +94,10 @@ class SpindleAnalyzer:
                 print(f"Available annotations: {annotation_desc}")
                 exit(1)
         
-        if "BAD" not in annotation_desc:
-            print("WARNING: No 'BAD' annotations found in the data.")
+        # Check for annotations containing "bad" (case-insensitive)
+        bad_annotations = [desc for desc in annotation_desc if 'bad' in desc.lower()]
+        if not bad_annotations:
+            print("WARNING: No annotations containing 'bad' found in the data.")
             print(f"Available annotations: {annotation_desc}")
         
         self.target_raw = raw_data.pick_channels([self.target_channel])
@@ -154,7 +156,7 @@ class SpindleAnalyzer:
             stage_mask = (ann.description == "NREM2") & (ann.duration >= self.min_duration)
             stage_names = "N2"
             
-        bad_mask = ann.description == "BAD"
+        bad_mask = np.array([('bad' in desc.lower()) for desc in ann.description])
         stage_segments = np.column_stack([ann.onset[stage_mask], ann.onset[stage_mask] + ann.duration[stage_mask]])
         bad_segments = np.column_stack([ann.onset[bad_mask], ann.onset[bad_mask] + ann.duration[bad_mask]])
         
