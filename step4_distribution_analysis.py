@@ -7,7 +7,7 @@ import mne
 from pathlib import Path
 from scipy.interpolate import interp1d
 from config import BASE_DIR
-from step3_spectral import get_all_subjects
+from utils import get_all_subjects
 from scipy.ndimage import uniform_filter1d
 
 def load_subject_data(subject_id, dir=None):
@@ -1102,9 +1102,8 @@ def main():
     # if not subjects:
     #     print("No subjects found!")
     #     return
-    subjects = ["RD43"]
+    subjects = ["EL3003"]
     
-    subject_dir = Path("RD43_MA_Hann_N2")
     
     # df = collect_all_data(subjects, target_channel)
     # if df is None:
@@ -1117,12 +1116,14 @@ def main():
     
     # Topographies with subject_dir
     # plot_topographies(subjects, normalize=True, subject_dir=subject_dir)
-    # plot_topographies(subjects, normalize=False, subject_dir=subject_dir)
+    for sub in subjects:
+        subject_dir = Path(f"{sub}_N2N3_gauss_detrend/")
+        plot_topographies([sub], normalize=False, subject_dir=subject_dir)
+        plot_single_subject_all_channels_spectral_power(sub, subject_dir, smoothing_window=5)
     
     # Individual subject all-channels distributions
     # plot_subject_all_channels_distributions(subjects, subject_dir)
     
-    plot_single_subject_all_channels_spectral_power(subjects[0], subject_dir, smoothing_window=5)
     
     # Combined all-channels distribution across all subjects
     # plot_combined_all_channels_distributions(subjects, output_dir)

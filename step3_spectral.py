@@ -10,13 +10,11 @@ from scipy.optimize import curve_fit
 from scipy.integrate import simpson
 from scipy.interpolate import interp1d
 from pathlib import Path
-import textwrap
 import time
-import glob
-import os
-import re
 import gc
-from config import BASE_DIR, FACE_ELECTRODES, NECK_ELECTRODES
+from config import FACE_ELECTRODES, NECK_ELECTRODES
+from utils import find_subject_fif_file, get_all_subjects
+
 
 mne.set_log_level("error")
 mne.viz.set_browser_backend('qt')
@@ -215,36 +213,7 @@ class SpindleAnalyzer:
         """
         window = hann(len(signal))
         return signal * window
-    
-    def plot_sigma_envelope(self, times, data, amplitude_envelope, start_time, duration):
-        spindle_mask = (self.spindles_df['Start'] >= start_time) & (self.spindles_df['Start'] <= start_time + duration)
-        curr_spindles = self.spindles_df[spindle_mask]
-        
-        _, ax = plt.subplots(figsize=(12, 4))
-        ax.plot(times, data, color='black', lw=1, label="Sigma", alpha=0.7)
-        ax.plot(times, amplitude_envelope, label="Sigma Envelope", color="red", linewidth=2)
-        
-        for i, (_, row) in enumerate(curr_spindles.iterrows()):
-            label = "Spindle" if i == 0 else None
-            ax.axvspan(row['Start'], row['Start'] + row['Duration'], color='blue', alpha=0.3, label=label)
 
-        ax.set_xlabel("Time (s)")
-        ax.set_ylabel('Amplitude (µV)')
-        ax.set_title(f"Envelope of {self.target_channel} ({self.low_freq}-{self.high_freq} Hz)")
-        ax.set_xlim(times[0], times[-1])
-        ax.set_ylim(data.min() - 10, data.max() + 10)
-        
-        xticks = np.arange(start_time, start_time + duration + 1)
-        ax.set_xticks(xticks)
-        xtick_labels = [str(tick) if tick % 5 == 0 else '' for tick in xticks]
-        ax.set_xticklabels(xtick_labels)
-        
-        plt.legend()
-        plt.tight_layout()
-        plot_path = Path(self.output_dir) / f"{self.subject_id}_{self.target_channel}_sigma_envelope.png"
-        plt.savefig(plot_path, dpi=300)
-        plt.close()
-        print(f"Segment plot saved to: {plot_path}")
 
     @staticmethod
     def gaussian(x, a, mu, sigma):
@@ -802,40 +771,6 @@ def analyze_all_channels(sub, raw_path, apply_detrending=True, include_n3=False,
     save_multi_channel_summary(sub, channel_results, all_bout_results, subject_dir, total_channels)
 
 
-def get_all_subjects(main_dir):
-    """Get list of all subject IDs from directory."""
-    if not os.path.exists(main_dir):
-        print(f"Main directory not found: {main_dir}")
-        return []
-    
-    subject_dirs = [d for d in os.listdir(main_dir) 
-                   if os.path.isdir(os.path.join(main_dir, d))]
-    
-    print(f"Found {len(subject_dirs)} subjects: {subject_dirs}")
-    return subject_dirs
-
-
-def find_subject_fif_file(subject_id):
-    """Find appropriate .fif file for subject."""
-    folder_path = f"{BASE_DIR}/control_clean/{subject_id}/"
-    if not os.path.exists(folder_path):
-        print(f"Subject folder not found: {folder_path}")
-        return None
-    
-    all_files = glob.glob(os.path.join(folder_path, "*"))
-    base_fif_pattern = re.compile(r'.*\.fif$')  # ends with .fif
-    numbered_fif_pattern = re.compile(r'.*-\d+\.fif$')  # ends with -X.fif
-    base_files = [f for f in all_files 
-                  if base_fif_pattern.match(os.path.basename(f)) 
-                  and not numbered_fif_pattern.match(os.path.basename(f))]
-    
-    if base_files:
-        raw_path = max(base_files, key=lambda x: len(os.path.basename(x)))
-        print(f"Using file: {os.path.basename(raw_path)}")
-        return raw_path
-    else:
-        return None
-
 
 def run_channel_analysis(subject_id, raw_path, channel, output_dir=None, apply_detrending=True, include_n3=False):
     """Run complete analysis pipeline for a single channel."""
@@ -946,11 +881,11 @@ def process_all_subjects(apply_detrending=True, include_n3=False):
     print(f"Detrending: {'ENABLED' if apply_detrending else 'DISABLED'}")
     print(f"{'='*80}\n")
     
-    subject_dirs = get_all_subjects(f"{BASE_DIR}/control_clean/")
-    if not subject_dirs:
-        return
+    # subject_dirs = get_all_subjects(f"{BASE_DIR}/control_clean/")
+    # if not subject_dirs:
+    #     return
 
-    # subject_dirs = ["RD43"]
+    subject_dirs = ["EL3002"]
     processed_subjects = []
     failed_subjects = []
     for i, sub in enumerate(subject_dirs):
@@ -1030,9 +965,9 @@ def focused_electrode_analysis(target_subject, target_electrode, output_dir, app
 def main():
     """Main function to run spectral analysis."""
     
-    # process_all_subjects(apply_detrending=True, include_n3=True)  # OPTION 1: Process all subjects
+    process_all_subjects(apply_detrending=True, include_n3=True)  # OPTION 1: Process all subjects
     
-    focused_electrode_analysis(target_subject="RD43", target_electrode="E24", output_dir="tmp/gauss_N2N3_with_thresh", apply_detrending=True, include_n3=True)
+    # focused_electrode_analysis(target_subject="RD43", target_electrode="E24", output_dir="tmp/gauss_N2N3_with_thresh", apply_detrending=True, include_n3=True)
 
 
 if __name__ == "__main__":

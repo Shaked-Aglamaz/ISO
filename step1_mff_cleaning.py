@@ -8,15 +8,8 @@ import traceback
 import time
 
 from config import FACE_ELECTRODES, NECK_ELECTRODES, BASE_DIR
+from utils import load_google_sheet
 
-def load_google_sheet():
-    """Load the main subject data from Google Sheets"""
-    sheet_url = "https://docs.google.com/spreadsheets/d/1BE0Yu-wECLe0NkdIIvxGjYKNL84FRgUE/edit?gid=768201376#gid=768201376"
-    # Convert to CSV export URL
-    csv_url = sheet_url.replace('/edit?gid=', '/export?format=csv&gid=')
-    
-    df = pd.read_csv(csv_url)
-    return df
 
 def load_subject_cleaning_mapping():
     """Load mapping between subject ID and cleaning ID from Google Sheet"""
