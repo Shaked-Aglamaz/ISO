@@ -38,7 +38,7 @@ class BoutInfo:
 
 class SpindleAnalyzer:
     def __init__(self, subject_id, raw_path, low_freq=13, high_freq=16, target_channel='VREF', 
-                output_dir=None, min_duration=300, apply_detrending=True, include_n3=False):
+                output_dir=None, min_duration=300, include_n3=False):
         self.subject_id = subject_id
         self.low_freq = low_freq
         self.high_freq = high_freq
@@ -48,7 +48,6 @@ class SpindleAnalyzer:
         self._add_to_gitignore(Path(self.output_dir).parent)
         self.raw_path = raw_path
         self.min_duration = min_duration
-        self.apply_detrending = apply_detrending
         self.include_n3 = include_n3
         
         self.target_raw = None
@@ -786,7 +785,7 @@ class SpindleAnalyzer:
         with open(summary_path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(summary_lines))
 
-def analyze_all_channels(sub, raw_path, apply_detrending=True, include_n3=False, subject_dir=None, max_workers=None):
+def analyze_all_channels(sub, raw_path, include_n3=False, subject_dir=None, max_workers=None):
     raw = mne.io.read_raw(raw_path, preload=False)
     excluded_channels = set(FACE_ELECTRODES + NECK_ELECTRODES)
     valid_channels = [ch for ch in raw.ch_names if ch not in excluded_channels and 'EMG' not in ch]
@@ -803,7 +802,7 @@ def analyze_all_channels(sub, raw_path, apply_detrending=True, include_n3=False,
         future_to_channel = {}
         for channel in valid_channels:
             output_dir = f"{subject_dir}/{sub}_{channel}_output" if subject_dir else None
-            future = executor.submit(run_channel_analysis, sub, raw_path, channel, output_dir, apply_detrending, include_n3)
+            future = executor.submit(run_channel_analysis, sub, raw_path, channel, output_dir, include_n3)
             future_to_channel[future] = channel
         
         # Collect results as they complete
@@ -823,11 +822,10 @@ def analyze_all_channels(sub, raw_path, apply_detrending=True, include_n3=False,
     save_multi_channel_summary(sub, channel_results, all_bout_results, subject_dir, total_channels)
 
 
-def run_channel_analysis(subject_id, raw_path, channel, output_dir=None, apply_detrending=True, include_n3=False):
+def run_channel_analysis(subject_id, raw_path, channel, output_dir=None, include_n3=False):
     """Run complete analysis pipeline for a single channel."""
-    analyzer = SpindleAnalyzer(subject_id, raw_path, low_freq=13, high_freq=16, 
-                             target_channel=channel, output_dir=output_dir, 
-                             apply_detrending=apply_detrending, include_n3=include_n3)
+    analyzer = SpindleAnalyzer(subject_id, raw_path, low_freq=13, high_freq=16, target_channel=channel,
+                               output_dir=output_dir, include_n3=include_n3)
     analyzer.analyze_all_bouts()
     analyzer.get_summary()
     analyzer.plot_baseline_correction_preview()
@@ -925,13 +923,9 @@ def save_focused_analysis_results(analyzer, subject_id, channel_name, output_dir
         print(f"✓ Saved {len(bout_df)} individual bout results to {bout_file}")
 
 
-def process_all_subjects(apply_detrending=True, include_n3=False, max_workers=None):
+def process_all_subjects(include_n3=False, max_workers=None):
     """Process all subjects in the control_clean directory with configurable parallelization."""
     start_time = time.time()
-    print(f"{'='*80}")
-    print(f"Detrending: {'ENABLED' if apply_detrending else 'DISABLED'}")
-    print(f"{'='*80}\n")
-    
     # subject_dirs = get_all_subjects(f"{BASE_DIR}/control_clean/")
     # if not subject_dirs:
     #     return
@@ -949,7 +943,7 @@ def process_all_subjects(apply_detrending=True, include_n3=False, max_workers=No
             if raw_path:
                 stages = "N2N3" if include_n3 else "N2"
                 subject_dir = f"{sub}_{stages}_gauss_detrend"
-                analyze_all_channels(sub, raw_path, apply_detrending, include_n3, subject_dir, max_workers)
+                analyze_all_channels(sub, raw_path, include_n3, subject_dir, max_workers)
                 subject_duration = time.time() - subject_start_time
                 processed_subjects.append(sub)
                 print(f"✓ Successfully processed subject {sub} in {subject_duration/60:.2f} minutes")
@@ -985,16 +979,15 @@ def process_all_subjects(apply_detrending=True, include_n3=False, max_workers=No
     print(f"{'='*80}")
 
 
-def focused_electrode_analysis(target_subject, target_electrode, output_dir, apply_detrending=True, include_n3=False):
+def focused_electrode_analysis(target_subject, target_electrode, output_dir, include_n3=False):
     """Perform focused analysis on single electrode of single subject."""
     start_time = time.time()
     print(f"\nFOCUSED ANALYSIS: Subject {target_subject}, Electrode {target_electrode}")
-    print(f"Detrending: {'ENABLED' if apply_detrending else 'DISABLED'}")
     try:
         raw_path = find_subject_fif_file(target_subject)
         if raw_path:
             print(f"{'='*60}")
-            analyzer = run_channel_analysis(target_subject, raw_path, target_electrode, output_dir, apply_detrending, include_n3)
+            analyzer = run_channel_analysis(target_subject, raw_path, target_electrode, output_dir, include_n3)
             save_focused_analysis_results(analyzer, target_subject, target_electrode, output_dir)
             
             end_time = time.time()
@@ -1016,12 +1009,12 @@ def main():
     """Main function to run spectral analysis."""
     
     # OPTION 1: Process all subjects with parallel processing (recommended)
-    # process_all_subjects(apply_detrending=True, include_n3=True)
+    # process_all_subjects(include_n3=True)
     
     # OPTION 2: Focused single electrode analysis (always sequential)
     focused_electrode_analysis(target_subject="RD43", target_electrode="E24", 
                               output_dir="tmp/gauss_N2N3_with_thresh_and_split", 
-                              apply_detrending=True, include_n3=True)
+                              include_n3=True)
 
 
 if __name__ == "__main__":
