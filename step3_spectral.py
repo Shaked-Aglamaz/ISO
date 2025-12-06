@@ -8,7 +8,6 @@ from scipy.signal.windows import hann
 from scipy.ndimage import uniform_filter1d, gaussian_filter1d
 from scipy.optimize import curve_fit
 from scipy.integrate import simpson
-from scipy.interpolate import interp1d
 from pathlib import Path
 import time
 import gc
@@ -31,14 +30,15 @@ class BoutInfo:
         self.end_time = end_time
         self.id = bout_id
         self.duration = end_time - start_time
+        self.n_segments = 0
 
     def __str__(self):
-        return f"Bout {self.id}: {self.start_time:.1f}-{self.end_time:.1f}s ({self.duration:.1f}s)"
+        return f"Bout {self.id}: {self.start_time:.1f}-{self.end_time:.1f}s ({self.duration:.1f}s), Segments: {self.n_segments}"
 
 
 class SpindleAnalyzer:
     def __init__(self, subject_id, raw_path, low_freq=13, high_freq=16, target_channel='VREF', 
-                output_dir=None, min_duration=280, apply_detrending=True, include_n3=False):
+                output_dir=None, min_duration=300, apply_detrending=True, include_n3=False):
         self.subject_id = subject_id
         self.low_freq = low_freq
         self.high_freq = high_freq
@@ -59,7 +59,7 @@ class SpindleAnalyzer:
         self.detrended_bouts = []
         
         # For relative spectral power computation
-        self._frequencies = []
+        self._common_freqs = None
         self._all_power_spectra = []
         self.channel_result = None
         self.fitted_params = None
@@ -216,24 +216,64 @@ class SpindleAnalyzer:
         window = hann(len(signal))
         return signal * window
 
+    @staticmethod
+    def split_bout_into_segments(detrended_envelope, sfreq, bout_duration):
+        """
+        Split a bout's detrended envelope into segments based on bout duration.
+        - 300 ≤ L < 600s: Return whole bout as single segment
+        - 600 ≤ L < 900s: Return centered 600s segment
+        - L ≥ 900s: Return multiple centered 600s segments with 50% overlap (300s step)
+        """
+        L = bout_duration
+        
+        if L < 600:
+            return [detrended_envelope]
+        
+        if L < 900:
+            start_sec = (L - 600) / 2
+            start_idx = int(start_sec * sfreq)
+            end_idx = start_idx + int(600 * sfreq)
+            centered_segment = detrended_envelope[start_idx:end_idx]
+            return [centered_segment]
+        
+        window_sec = 600
+        step_sec = 300
+        window_samples = int(window_sec * sfreq)
+        step_samples = int(step_sec * sfreq)
+        total_samples = len(detrended_envelope)
+        
+        # Calculate number of segments, total span and offset for centering
+        n_segments = 1 + (total_samples - window_samples) // step_samples
+        total_span = window_samples + (n_segments - 1) * step_samples
+        offset = (total_samples - total_span) // 2
+        segments = []
+        for i in range(n_segments):
+            start_idx = offset + i * step_samples
+            segment = detrended_envelope[start_idx:start_idx + window_samples]
+            segments.append(segment)
+        
+        return segments
 
     @staticmethod
     def gaussian(x, a, mu, sigma):
         return a * np.exp(-(x - mu)**2 / (2 * sigma**2))
     
-    def _compute_basic_fft(self, amplitude_envelope):
-        """Compute basic FFT power spectrum from amplitude envelope."""
+    def _compute_basic_fft(self, amplitude_envelope, target_duration=600):
+        """
+        Compute basic FFT power spectrum from amplitude envelope with fixed frequency resolution.
+        """
         sfreq = self.target_raw.info['sfreq']
         n_samples = amplitude_envelope.shape[0]
-        freqs = np.fft.rfftfreq(n_samples, d=1/sfreq)
-        fft_values = np.fft.rfft(amplitude_envelope)
+        target_samples = int(target_duration * sfreq)
+        freqs = np.fft.rfftfreq(target_samples, d=1/sfreq)
+        fft_values = np.fft.rfft(amplitude_envelope, n=target_samples)
         fft_power = np.abs(fft_values) ** 2
         fft_power *= 1e6
         fft_power = fft_power / (n_samples / sfreq)
         return freqs, fft_power
     
     def detect_low_frequency_artifacts(self, amplitude_envelope):
-        """Detect low-frequency artifacts and apply linear detrending if needed."""
+        """Detect low-frequency artifacts (for QC only, not used in current pipeline)."""
         freqs, fft_power = self._compute_basic_fft(amplitude_envelope)
         
         low_freq_mask = (freqs >= 0) & (freqs <= 0.004)
@@ -251,37 +291,23 @@ class SpindleAnalyzer:
         else:
             return amplitude_envelope, False
     
-    def compute_fft_power_spectrum(self, amplitude_envelope, min_freq=0, max_freq=0.1, bout_id=None):
+    def compute_fft_power_spectrum(self, amplitude_envelope, min_freq=0, max_freq=0.1):
         """
-        Compute FFT power spectrum with optional linear detrending and normalization.
-        
-        Parameters:
-        -----------
-        amplitude_envelope : array
-            Envelope signal (after MA subtraction, recentering, and Hann tapering)
-        min_freq, max_freq : float
-            Frequency range for output
-        bout_id : int, optional
-            Bout identifier for tracking detrended bouts
+        Compute FFT power spectrum and extract frequency range.
         """
-        
-        # Optional linear detrending as safety net for exceptional low-freq artifacts
-        if self.apply_detrending:
-            amplitude_envelope, was_detrended = self.detect_low_frequency_artifacts(amplitude_envelope)
-            if was_detrended and bout_id is not None:
-                self.detrended_bouts.append(bout_id)
-        
         freqs, fft_power = self._compute_basic_fft(amplitude_envelope)
         mask = (freqs >= min_freq) & (freqs <= max_freq)
-        x = freqs[mask]
-        y = fft_power[mask]
+        freqs_masked = freqs[mask]
+        if self._common_freqs is None:
+            self._common_freqs = freqs_masked
+        elif not np.array_equal(self._common_freqs, freqs_masked):
+            # Verify that current frequency grid matches the stored one
+            raise ValueError(f"Frequency grid mismatch in channel {self.target_channel}")
         
-        # Normalization: divide by mean power in the frequency range
-        y_relative = y / np.mean(y)
-        
-        return x, y_relative
+        return fft_power[mask]
 
     def fit_gaussian_to_spectrum(self, x, y):
+        """Fit Gaussian curve to spectrum for ISFS detection."""
         max_idx = np.argmax(y)
         peak_amplitude = y[max_idx]
         peak_frequency = x[max_idx]
@@ -298,15 +324,24 @@ class SpindleAnalyzer:
 
     def analyze_single_bout(self, bout_info):
         """
-        Analyze single bout using 8-step pipeline:
+        Analyze single bout using 9-step pipeline with bout splitting:
+
+        Time Domain (per bout):
         1. Crop and filter to sigma band (13-16 Hz)
         2. Compute Hilbert envelope (raw amplitude)
-        3. Gaussian smoothing detrending
+        3. Gaussian smoothing detrending (σ = 50s)
         4. Recenter around zero
-        5. Apply Hann taper (windowing for FFT)
-        6. Compute FFT power spectrum (0-0.1 Hz)
-        7. Optional linear detrending for exceptional low-freq artifacts
-        8. Normalize to relative power using bout mean power
+        
+        Bout Splitting:
+        5. Split into segments based on duration:
+        
+        Frequency Domain (per segment):
+        6. Apply Hann taper
+        7. Compute FFT power spectrum (0-0.1 Hz)
+        8. Average segments (if L ≥ 900s) → 1 spectrum per bout
+        
+        Normalization (per bout):
+        9. Divide by mean of bout spectrum (0-0.1 Hz)
         """
         # Step 1: Crop and filter to sigma band
         bout_raw = self.target_raw.copy().crop(tmin=bout_info.start_time, tmax=bout_info.end_time)
@@ -324,22 +359,39 @@ class SpindleAnalyzer:
         # Step 4: Recenter around zero
         amplitude_envelope = amplitude_envelope - np.mean(amplitude_envelope)
         
-        # Step 5: Apply Hann taper
-        amplitude_envelope = self.apply_hann_taper(amplitude_envelope)
+        # Step 5: Split into segments based on bout duration
+        envelope_segments = self.split_bout_into_segments(amplitude_envelope, sfreq, bout_info.duration)
+        bout_info.n_segments = len(envelope_segments)
         
-        # Steps 6-8: FFT with optional linear detrending and normalization
-        x, y = self.compute_fft_power_spectrum(amplitude_envelope, bout_id=bout_info.id)
+        # Steps 6-8: Process each segment
+        segment_spectra = []
+        for segment in envelope_segments:
+            # Step 6: Apply Hann taper to segment
+            tapered_segment = self.apply_hann_taper(segment)
+            
+            # Step 7: Compute FFT power spectrum (0-0.1 Hz)
+            power = self.compute_fft_power_spectrum(tapered_segment, min_freq=0, max_freq=0.1)
+            segment_spectra.append(power)
+        
+        # Step 8: Average segment spectra if multiple segments (L ≥ 900s)
+        bout_spectrum = np.mean(segment_spectra, axis=0) if len(envelope_segments) > 1 else segment_spectra[0]
+        print(f"  ✓ Bout {bout_info.id}: {len(envelope_segments)} segments (duration {bout_info.duration:.1f}s)")
 
+        # Step 9: Normalize by mean of bout spectrum (0-0.1 Hz)
+        bout_mean_power = np.mean(bout_spectrum)
+        normalized_spectrum = bout_spectrum / bout_mean_power
+        
         bout_result = {
             'bout_id': bout_info.id,
             'start_time': bout_info.start_time,
             'end_time': bout_info.end_time,
-            'duration': bout_info.duration
+            'duration': bout_info.duration,
+            'n_segments': bout_info.n_segments
         }
         
-        self._save_bout_fft_data(x, y, bout_info)
-        self.plot_bout_fft(x, y, bout_info)
-        return bout_result, (x, y)
+        self._save_bout_fft_data(self._common_freqs, normalized_spectrum, bout_info)
+        self.plot_bout_fft(self._common_freqs, normalized_spectrum, bout_info)
+        return bout_result, normalized_spectrum
 
     def _save_bout_fft_data(self, frequencies, power, bout_info):
         """Save bout FFT data to CSV (relative power)."""
@@ -362,7 +414,7 @@ class SpindleAnalyzer:
     def plot_bout_fft(self, x, y, bout_info):
         """Plot FFT relative power spectrum for a bout."""
         title = (f'FFT Relative Power Spectrum - Bout {bout_info.id}\n'
-                f'Time: {bout_info.start_time:.1f}-{bout_info.end_time:.1f}s, Duration: {bout_info.duration:.1f}s')
+                f'Time: {bout_info.start_time:.1f} - {bout_info.end_time:.1f}s, Duration: {bout_info.duration:.1f}s, # Segments: {bout_info.n_segments}')
         filename_suffix = f"bout_{bout_info.id}_fft_power"
         self.plot_fft_spectrum(x, y, title, filename_suffix, show_gaussian=False)
 
@@ -468,11 +520,10 @@ class SpindleAnalyzer:
         bout_results = []
         for bout_info in self.n2_bouts:
             try:
-                result, (freqs, power) = self.analyze_single_bout(bout_info)
+                result, power = self.analyze_single_bout(bout_info)
                 if result is not None:
                     bout_results.append(result)
                     self._all_power_spectra.append(power)
-                    self._frequencies.append(freqs)
             except Exception as e:
                 self.bout_errors[bout_info] = e
                 print(f"  ✗ {bout_info} analysis failed: {e}")
@@ -501,28 +552,17 @@ class SpindleAnalyzer:
                 print("✗ Could not compute mean spectral power")
         
     def compute_mean_spectral_power(self):
-        """Compute mean spectral power over all bouts using interpolation."""
-        if not self._frequencies or not self._all_power_spectra:
+        """Compute mean spectral power over all bouts."""
+        if self._common_freqs is None or not self._all_power_spectra:
             print("No power spectra available. Run analyze_all_bouts() first.")
             return None, None, None
         
-        # Create common frequency grid with finest resolution for interpolation
-        highest_min = max(freqs[0] for freqs in self._frequencies)
-        lowest_max = min(freqs[-1] for freqs in self._frequencies)
-        finest_resolution = min(freqs[1] - freqs[0] for freqs in self._frequencies)
-        common_freqs = np.arange(highest_min, lowest_max, finest_resolution)
-        
-        interpolated_spectra = []
-        for freqs, power in zip(self._frequencies, self._all_power_spectra):
-            interp_func = interp1d(freqs, power, bounds_error=False, fill_value='extrapolate')
-            interpolated_power = interp_func(common_freqs)
-            interpolated_spectra.append(interpolated_power)
-        
-        power_matrix = np.array(interpolated_spectra)
+        # Average directly across bouts (no interpolation needed)
+        power_matrix = np.array(self._all_power_spectra)
         mean_power_spectrum = np.mean(power_matrix, axis=0)
         std_power_spectrum = np.std(power_matrix, axis=0)
         
-        return common_freqs, mean_power_spectrum, std_power_spectrum
+        return self._common_freqs, mean_power_spectrum, std_power_spectrum
     
     def apply_baseline_correction(self, frequencies, mean_power):
         """Apply baseline correction using 0.06-0.1 Hz range."""
@@ -698,11 +738,11 @@ class SpindleAnalyzer:
             summary_lines.append(f"  Detrended Bout IDs: {', '.join(map(str, self.detrended_bouts))}")
         summary_lines.append("")
         summary_lines.append("Per-Bout Analysis (Spectral Power Only):")
-        summary_lines.append(f"{'Bout':<6}{'Start Time':<12}{'End Time':<12}{'Duration':<10}")
-        summary_lines.append("-" * 50)
+        summary_lines.append(f"{'Bout':<6}{'Start Time':<12}{'End Time':<12}{'Duration':<10}{'Segments':<10}")
+        summary_lines.append("-" * 60)
         
         for _, row in self.results_df.iterrows():
-            summary_lines.append(f"{row['bout_id']:<6}{row['start_time']:<12.1f}{row['end_time']:<12.1f}{row['duration']:<10.1f}")
+            summary_lines.append(f"{int(row['bout_id']):<6}{row['start_time']:<12.1f}{row['end_time']:<12.1f}{row['duration']:<10.1f}{int(row['n_segments']):<10}")
         
         summary_lines.append("")
         summary_lines.append("Bout Duration Statistics:")
@@ -754,14 +794,10 @@ def analyze_all_channels(sub, raw_path, apply_detrending=True, include_n3=False,
     del raw
     
     total_channels = len(valid_channels)
-    
+    channel_results, all_bout_results = [], []
     if max_workers is None:
         max_workers = max(1, (os.cpu_count() // 2) - 1)
     print(f"Parallel Workers: {max_workers} / {os.cpu_count()} CPU cores ({total_channels} channels)")
-    
-    channel_results = []
-    all_bout_results = []
-    
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks
         future_to_channel = {}
@@ -775,13 +811,11 @@ def analyze_all_channels(sub, raw_path, apply_detrending=True, include_n3=False,
         for future in as_completed(future_to_channel):
             channel = future_to_channel[future]
             completed += 1
-            
             try:
                 analyzer = future.result()
                 aggregate_channel_results(analyzer, channel, channel_results, all_bout_results)
                 print(f"✓ [{completed}/{total_channels}] {sub} - Channel {channel} completed")
                 del analyzer
-                
             except Exception as e:
                 print(f"✗ [{completed}/{total_channels}] {sub} - Channel {channel} failed: {e}")
     
@@ -982,12 +1016,12 @@ def main():
     """Main function to run spectral analysis."""
     
     # OPTION 1: Process all subjects with parallel processing (recommended)
-    process_all_subjects(apply_detrending=True, include_n3=True)
+    # process_all_subjects(apply_detrending=True, include_n3=True)
     
     # OPTION 2: Focused single electrode analysis (always sequential)
-    # focused_electrode_analysis(target_subject="RD43", target_electrode="E24", 
-    #                           output_dir="tmp/gauss_N2N3_with_thresh", 
-    #                           apply_detrending=True, include_n3=True)
+    focused_electrode_analysis(target_subject="RD43", target_electrode="E24", 
+                              output_dir="tmp/gauss_N2N3_with_thresh_and_split", 
+                              apply_detrending=True, include_n3=True)
 
 
 if __name__ == "__main__":
