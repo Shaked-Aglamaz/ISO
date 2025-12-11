@@ -13,14 +13,13 @@ import time
 import gc
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from config import FACE_ELECTRODES, NECK_ELECTRODES
+from config import BASE_DIR, FACE_ELECTRODES, NECK_ELECTRODES
 from utils import find_subject_fif_file, get_all_subjects
 
 
 mne.set_log_level("error")
 mne.viz.set_browser_backend('qt')
 mne.set_config('MNE_BROWSER_THEME', 'dark')
-SUB_TO_HYPNO_PATH = {'31': 'HC_V1/EL3006', '26': 'HC_V1/RD43', '9': 'HK5'}
 
 
 class BoutInfo:
@@ -38,7 +37,7 @@ class BoutInfo:
 
 class SpindleAnalyzer:
     def __init__(self, subject_id, raw_path, low_freq=13, high_freq=16, target_channel='VREF', 
-                output_dir=None, min_duration=300, include_n3=False):
+                output_dir=None, min_duration=300, include_n3=False, annotations_path=None):
         self.subject_id = subject_id
         self.low_freq = low_freq
         self.high_freq = high_freq
@@ -49,6 +48,7 @@ class SpindleAnalyzer:
         self.raw_path = raw_path
         self.min_duration = min_duration
         self.include_n3 = include_n3
+        self.annotations_path = annotations_path
         
         self.target_raw = None
         self.spindles_df = None
@@ -80,16 +80,24 @@ class SpindleAnalyzer:
 
     def load_raw_data(self):
         raw_data = mne.io.read_raw(self.raw_path)
-        annotation_desc = set(raw_data.annotations.description)
+        if self.annotations_path.exists():
+            cleaned_annotations = mne.read_annotations(self.annotations_path)
+            raw_data.set_annotations(cleaned_annotations)
+            print(f"✓ Loaded cleaned annotations from {self.annotations_path.name}")
+        else:
+            print(f"⚠ No cleaned annotations found at {self.annotations_path}, using original")
         
+        annotation_desc = set(raw_data.annotations.description)
+        has_n2 = any(stage in annotation_desc for stage in ["N2", "NREM2"])
+        has_n3 = any(stage in annotation_desc for stage in ["N3", "NREM3"])
         if self.include_n3:
-            if "NREM2" not in annotation_desc and "NREM3" not in annotation_desc:
-                print(f"ERROR: No 'NREM2' or 'NREM3' annotations found in the data.")
+            if not has_n2 and not has_n3:
+                print(f"ERROR: No 'N2'/'NREM2' or 'N3'/'NREM3' annotations found in the data.")
                 print(f"Available annotations: {annotation_desc}")
                 exit(1)
         else:
-            if "NREM2" not in annotation_desc:
-                print(f"ERROR: No 'NREM2' annotations found in the data.")
+            if not has_n2:
+                print(f"ERROR: No 'N2' or 'NREM2' annotations found in the data.")
                 print(f"Available annotations: {annotation_desc}")
                 exit(1)
         
@@ -102,7 +110,7 @@ class SpindleAnalyzer:
         self.target_raw = raw_data.pick_channels([self.target_channel])
         self.target_raw.load_data()
 
-    def detect_spindles(self, plot_raw=False):
+    def detect_spindles(self):
         if self.target_raw is None:
             self.load_raw_data()
             
@@ -117,8 +125,6 @@ class SpindleAnalyzer:
             )
             annotations = self.target_raw.annotations + spindle_annotations
             self.target_raw.set_annotations(annotations)
-            if plot_raw:
-                self.target_raw.plot()
 
     def _extract_valid_segments(self, n2_start, n2_end, bad_segments):
         """Extract valid segments from N2 period, excluding BAD overlaps."""
@@ -149,10 +155,11 @@ class SpindleAnalyzer:
         ann = self.target_raw.annotations
         
         if self.include_n3:
-            stage_mask = ((ann.description == "NREM2") | (ann.description == "NREM3")) & (ann.duration >= self.min_duration)
+            stage_mask = ((ann.description == "N2") | (ann.description == "NREM2") | 
+                         (ann.description == "N3") | (ann.description == "NREM3")) & (ann.duration >= self.min_duration)
             stage_names = "N2/N3"
         else:
-            stage_mask = (ann.description == "NREM2") & (ann.duration >= self.min_duration)
+            stage_mask = ((ann.description == "N2") | (ann.description == "NREM2")) & (ann.duration >= self.min_duration)
             stage_names = "N2"
             
         bad_mask = np.array([('bad' in desc.lower()) for desc in ann.description])
@@ -374,7 +381,6 @@ class SpindleAnalyzer:
         
         # Step 8: Average segment spectra if multiple segments (L ≥ 900s)
         bout_spectrum = np.mean(segment_spectra, axis=0) if len(envelope_segments) > 1 else segment_spectra[0]
-        print(f"  ✓ Bout {bout_info.id}: {len(envelope_segments)} segments (duration {bout_info.duration:.1f}s)")
 
         # Step 9: Normalize by mean of bout spectrum (0-0.1 Hz)
         bout_mean_power = np.mean(bout_spectrum)
@@ -485,10 +491,10 @@ class SpindleAnalyzer:
         
         return plot_path
 
-    def _validate_spindles_and_bouts(self, plot_raw=False):
+    def _validate_spindles_and_bouts(self):
         """Helper function to validate spindle detection and N2 bouts before analysis."""
         if self.spindles_df is None or self.target_raw is None:
-            self.detect_spindles(plot_raw)
+            self.detect_spindles()
         
             # Check if spindle detection failed
             if self.spindles_df is None:
@@ -511,9 +517,9 @@ class SpindleAnalyzer:
         
         return True
 
-    def analyze_all_bouts(self, plot_raw=False):
+    def analyze_all_bouts(self):
         """Analyze all valid N2 bouts in the recording."""
-        if not self._validate_spindles_and_bouts(plot_raw):
+        if not self._validate_spindles_and_bouts():
             return
         
         bout_results = []
@@ -785,10 +791,14 @@ class SpindleAnalyzer:
         with open(summary_path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(summary_lines))
 
-def analyze_all_channels(sub, raw_path, include_n3=False, subject_dir=None, max_workers=None):
+def analyze_all_channels(sub, raw_path, include_n3=False, subject_dir=None, max_workers=None, annotations_path=None):
     raw = mne.io.read_raw(raw_path, preload=False)
     excluded_channels = set(FACE_ELECTRODES + NECK_ELECTRODES)
-    valid_channels = [ch for ch in raw.ch_names if ch not in excluded_channels and 'EMG' not in ch]
+    valid_channels = [
+        ch for ch in raw.ch_names 
+        if ch not in excluded_channels 
+        and raw.info['chs'][raw.ch_names.index(ch)]['kind'] == mne.io.constants.FIFF.FIFFV_EEG_CH
+    ]    
     raw.close()
     del raw
     
@@ -802,7 +812,7 @@ def analyze_all_channels(sub, raw_path, include_n3=False, subject_dir=None, max_
         future_to_channel = {}
         for channel in valid_channels:
             output_dir = f"{subject_dir}/{sub}_{channel}_output" if subject_dir else None
-            future = executor.submit(run_channel_analysis, sub, raw_path, channel, output_dir, include_n3)
+            future = executor.submit(run_channel_analysis, sub, raw_path, channel, output_dir, include_n3, annotations_path)
             future_to_channel[future] = channel
         
         # Collect results as they complete
@@ -822,10 +832,15 @@ def analyze_all_channels(sub, raw_path, include_n3=False, subject_dir=None, max_
     save_multi_channel_summary(sub, channel_results, all_bout_results, subject_dir, total_channels)
 
 
-def run_channel_analysis(subject_id, raw_path, channel, output_dir=None, include_n3=False):
+def run_channel_analysis(subject_id, raw_path, channel, output_dir=None, include_n3=False, annotations_path=None):
     """Run complete analysis pipeline for a single channel."""
+    # Format annotations path with subject_id if template provided
+    if isinstance(annotations_path, str) and '{subject_id}' in annotations_path:
+        annotations_path = Path(annotations_path.format(subject_id=subject_id))
+    else:
+        annotations_path = Path(annotations_path)
     analyzer = SpindleAnalyzer(subject_id, raw_path, low_freq=13, high_freq=16, target_channel=channel,
-                               output_dir=output_dir, include_n3=include_n3)
+                               output_dir=output_dir, include_n3=include_n3, annotations_path=annotations_path)
     analyzer.analyze_all_bouts()
     analyzer.get_summary()
     analyzer.plot_baseline_correction_preview()
@@ -923,14 +938,14 @@ def save_focused_analysis_results(analyzer, subject_id, channel_name, output_dir
         print(f"✓ Saved {len(bout_df)} individual bout results to {bout_file}")
 
 
-def process_all_subjects(include_n3=False, max_workers=None):
+def process_all_subjects(main_dir, include_n3=False, max_workers=None, annotations_path=None):
     """Process all subjects in the control_clean directory with configurable parallelization."""
     start_time = time.time()
-    # subject_dirs = get_all_subjects(f"{BASE_DIR}/control_clean/")
-    # if not subject_dirs:
-    #     return
+    subject_dirs = get_all_subjects(main_dir)
+    if not subject_dirs:
+        return
 
-    subject_dirs = ["EL3016"]
+    # subject_dirs = ["EL3016"]
     processed_subjects, failed_subjects = [], []
     for i, sub in enumerate(subject_dirs):
         subject_start_time = time.time()
@@ -939,11 +954,12 @@ def process_all_subjects(include_n3=False, max_workers=None):
         print(f"{'='*80}")
         
         try:
-            raw_path = find_subject_fif_file(sub)
+            sub_dir = f"{main_dir}/{sub}/saved_raw/CleaningPipe/"
+            raw_path = find_subject_fif_file(sub_dir)
             if raw_path:
                 stages = "N2N3" if include_n3 else "N2"
-                subject_dir = f"{sub}_{stages}_gauss_detrend"
-                analyze_all_channels(sub, raw_path, include_n3, subject_dir, max_workers)
+                subject_dir = f"{sub}_{stages}_split_bouts"
+                analyze_all_channels(sub, raw_path, include_n3, subject_dir, max_workers, annotations_path)
                 subject_duration = time.time() - subject_start_time
                 processed_subjects.append(sub)
                 print(f"✓ Successfully processed subject {sub} in {subject_duration/60:.2f} minutes")
@@ -979,17 +995,17 @@ def process_all_subjects(include_n3=False, max_workers=None):
     print(f"{'='*80}")
 
 
-def focused_electrode_analysis(target_subject, target_electrode, output_dir, include_n3=False):
+def focused_electrode_analysis(subject, subject_dir, electrode, output_dir, include_n3=False, annotations_path=None):
     """Perform focused analysis on single electrode of single subject."""
     start_time = time.time()
-    print(f"\nFOCUSED ANALYSIS: Subject {target_subject}, Electrode {target_electrode}")
+    print(f"\nFOCUSED ANALYSIS: Subject {subject}, Electrode {electrode}")
     try:
-        raw_path = find_subject_fif_file(target_subject)
+        raw_path = find_subject_fif_file(subject_dir)
         if raw_path:
             print(f"{'='*60}")
-            analyzer = run_channel_analysis(target_subject, raw_path, target_electrode, output_dir, include_n3)
-            save_focused_analysis_results(analyzer, target_subject, target_electrode, output_dir)
-            
+            analyzer = run_channel_analysis(subject, raw_path, electrode, output_dir, include_n3, annotations_path)
+            save_focused_analysis_results(analyzer, subject, electrode, output_dir)
+
             end_time = time.time()
             duration = end_time - start_time
             print(f"\n{'='*60}")
@@ -998,8 +1014,8 @@ def focused_electrode_analysis(target_subject, target_electrode, output_dir, inc
             print(f"{'='*60}")
             
         else:
-            print(f"✗ No base .fif file found for subject {target_subject}")
-            
+            print(f"✗ No base .fif file found for subject {subject}")
+
     except Exception as e:
         print(f"✗ Error in focused analysis: {e}")
         raise
@@ -1009,12 +1025,21 @@ def main():
     """Main function to run spectral analysis."""
     
     # OPTION 1: Process all subjects with parallel processing (recommended)
-    # process_all_subjects(include_n3=True)
+    main_dir = f"{BASE_DIR}/elderly_control/"
     
+    # Option A: Template with {subject_id} placeholder (recommended for multiple subjects):
+    annotations_path = f"{BASE_DIR}/elderly_control/{{subject_id}}/{{subject_id}}_cleaned_hypno_annotations.txt"
+    
+    # Option B: Specific path (same file for all subjects):
+    # annotations_path = "path/to/specific/annotations.txt"
+    
+    # process_all_subjects(main_dir, include_n3=True, max_workers=3, annotations_path=annotations_path)
+
     # OPTION 2: Focused single electrode analysis (always sequential)
-    focused_electrode_analysis(target_subject="RD43", target_electrode="E24", 
-                              output_dir="tmp/gauss_N2N3_with_thresh_and_split", 
-                              include_n3=True)
+    subject = "RD43"
+    subject_dir = f"{BASE_DIR}/control_clean/{subject}/"
+    focused_electrode_analysis(subject, subject_dir, electrode="E24", output_dir="tmp/sanity_check", 
+                               include_n3=True, annotations_path=annotations_path)
 
 
 if __name__ == "__main__":

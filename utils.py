@@ -9,14 +9,13 @@ from pathlib import Path
 from config import BASE_DIR
 
 
-def find_subject_fif_file(subject_id):
+def find_subject_fif_file(subject_dir):
     """Find appropriate .fif file for subject."""
-    folder_path = f"{BASE_DIR}/control_clean/{subject_id}/"
-    if not os.path.exists(folder_path):
-        print(f"Subject folder not found: {folder_path}")
+    if not os.path.exists(subject_dir):
+        print(f"Subject folder not found: {subject_dir}")
         return None
-    
-    all_files = glob.glob(os.path.join(folder_path, "*"))
+
+    all_files = glob.glob(os.path.join(subject_dir, "*"))
     base_fif_pattern = re.compile(r'.*\.fif$')  # ends with .fif
     numbered_fif_pattern = re.compile(r'.*-\d+\.fif$')  # ends with -X.fif
     base_files = [f for f in all_files 
@@ -133,3 +132,112 @@ def load_google_sheet():
     
     df = pd.read_csv(csv_url)
     return df
+
+
+def merge_consecutive_annotations(raw, inplace=True, tolerance=0.001):
+    """
+    Merge consecutive annotations of the same type into single annotations.
+    """
+    if not hasattr(raw, 'annotations') or len(raw.annotations) == 0:
+        print("⚠ No annotations found to merge.")
+        return raw if inplace else None
+    
+    orig_annot = raw.annotations
+    n_original = len(orig_annot)
+    
+    # Convert annotations to list of dictionaries for easier manipulation
+    annot_list = []
+    for onset, duration, description in zip(orig_annot.onset, 
+                                            orig_annot.duration, 
+                                            orig_annot.description):
+        annot_list.append({
+            'onset': float(onset),
+            'duration': float(duration),
+            'description': str(description),
+            'end': float(onset + duration)
+        })
+    
+    # Sort by onset time
+    annot_list.sort(key=lambda x: x['onset'])
+    
+    # Merge consecutive annotations of the same type
+    merged = []
+    i = 0
+    
+    while i < len(annot_list):
+        current = annot_list[i].copy()
+        
+        # Look ahead for consecutive annotations of the same type
+        j = i + 1
+        while j < len(annot_list):
+            next_annot = annot_list[j]
+            
+            # Check if:
+            # 1. Same description (type)
+            # 2. Consecutive or overlapping (within tolerance)
+            is_same_type = next_annot['description'] == current['description']
+            is_consecutive = next_annot['onset'] <= current['end'] + tolerance
+            
+            if is_same_type and is_consecutive:
+                # Merge: extend the end time to include next annotation
+                current['end'] = max(current['end'], next_annot['end'])
+                current['duration'] = current['end'] - current['onset']
+                j += 1
+            else:
+                # Different type or gap too large, stop merging this segment
+                break
+        
+        merged.append(current)
+        i = j  # Continue from the next unmerged annotation
+    
+    # Create new MNE Annotations object
+    onsets = np.array([a['onset'] for a in merged])
+    durations = np.array([a['duration'] for a in merged])
+    descriptions = np.array([a['description'] for a in merged])
+    
+    new_annotations = mne.Annotations(
+        onset=onsets,
+        duration=durations,
+        description=descriptions,
+        orig_time=orig_annot.orig_time
+    )
+    
+    # Print summary
+    n_merged = len(new_annotations)
+    reduction = n_original - n_merged
+    reduction_pct = (reduction / n_original * 100) if n_original > 0 else 0
+    
+    print(f"✓ Merged {n_original} → {n_merged} annotations "
+          f"(reduced by {reduction}, {reduction_pct:.1f}%)")
+    
+    # Apply changes
+    if inplace:
+        raw.set_annotations(new_annotations)
+        return raw
+    else:
+        return new_annotations
+
+
+def print_annotation_summary(raw):
+    """
+    Print a summary of annotations in the raw object.
+    """
+    if not hasattr(raw, 'annotations') or len(raw.annotations) == 0:
+        print("No annotations found.")
+        return
+    
+    from collections import Counter
+    
+    annot = raw.annotations
+    print(f"\nTotal annotations: {len(annot)}")
+    print(f"Time span: {annot.onset[0]:.2f}s to {annot.onset[-1] + annot.duration[-1]:.2f}s")
+    
+    # Count by type
+    type_counts = Counter(annot.description)
+    print(f"\nAnnotations by type:")
+    for desc, count in sorted(type_counts.items()):
+        # Calculate total duration for this type
+        total_dur = sum(dur for dur, d in zip(annot.duration, annot.description) if d == desc)
+        avg_dur = total_dur / count if count > 0 else 0
+        print(f"  {desc:20s}: {count:5d} annotations, "
+              f"total {total_dur:8.1f}s, avg {avg_dur:6.2f}s each")
