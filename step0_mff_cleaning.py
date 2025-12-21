@@ -1,7 +1,6 @@
 import os
 import gc
 import mne
-import pandas as pd
 import numpy as np
 import psutil
 import traceback
