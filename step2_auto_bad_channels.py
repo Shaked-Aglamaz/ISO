@@ -1,12 +1,17 @@
+import os
 from pathlib import Path
-import pandas as pd
-import mne
+import traceback
+
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend for batch processing
 import matplotlib.pyplot as plt
+import mne
 import numpy as np
+import pandas as pd
+
 from config import BASE_DIR, EAR_ELECTRODES
-from utils import get_all_subjects, find_subject_fif_file
+from utils import compare_raw_and_file_annotations, find_subject_fif_file, get_all_subjects
+
 
 mne.set_log_level("error")
 
@@ -59,6 +64,7 @@ def compute_sigma_power_stats(raw, hypno_up, sigma_band=(12, 16)):
         }
     
     return channel_stats
+
 
 def get_outliers(data, channel_names):
     """Get outlier channels using IQR method."""
@@ -342,25 +348,17 @@ def reference_and_interpolate(raw, subject_dir, subject_id, output_suffix=None):
     print(f"✓ Saved: {output_path}")    
 
 
-def bout_durations(raw):
-    long_nrem2_count = 0
-    long_nrem2_durations = []
-
-    for desc, duration in zip(raw.annotations.description, raw.annotations.duration):
-        if desc in ['NREM2', 'NREM3'] and duration >= 280:
-            long_nrem2_count += 1
-            long_nrem2_durations.append(duration)
-
-    print(f"NREM2/NREM3 annotations longer than 280 seconds: {long_nrem2_count}")
-
-
-def bad_durations(raw):
-    bad_time = sum(duration for desc, duration in zip(raw.annotations.description, raw.annotations.duration) 
-                    if desc.startswith('BAD'))
-    total_recording_time = raw.times[-1]  # Total recording duration in seconds
-    bad_time_percentage = (bad_time / total_recording_time) * 100
-
-    print(f"BAD time: {bad_time:.1f}s / {total_recording_time:.1f}s ({bad_time_percentage:.1f}%)")
+def set_annotations(raw, sub, sub_dir):
+    cleaned_annotations_path = f"{sub_dir}/{sub}_cleaned_annotations.txt"
+    if os.path.exists(cleaned_annotations_path):
+        if compare_raw_and_file_annotations(raw, cleaned_annotations_path):
+            print("✓ Cleaned annotations already loaded.")
+        else:
+            cleaned_annotations = mne.read_annotations(cleaned_annotations_path)
+            raw.set_annotations(cleaned_annotations)
+            print(f"Loaded {len(cleaned_annotations)} annotations from: {cleaned_annotations_path}")
+    else:
+        print(f"Cleaned annotations file not found: {cleaned_annotations_path}")
 
 
 def main():
@@ -374,12 +372,13 @@ def main():
         hypno_path = f"{HYPNO_DIR}/{sub}.txt"
         try:
             print("-" * 80)
-            eeg_path = find_subject_fif_file(sub_dir)
+            eeg_path = find_subject_fif_file(sub_dir, max_length=False)
             raw = mne.io.read_raw_fif(eeg_path, preload=False, verbose=False)
             channels = [ch for ch in raw.ch_names if ch not in EAR_ELECTRODES]
             raw.pick(channels)
             raw.load_data()
-
+            set_annotations(raw, sub, sub_dir)
+            
             _, n2_outliers = analyze_sigma_power(sub, raw, hypno_path, output_dir="young_control/sigma_boxplot/")
             with open(f"{sub_dir}/n2_outliers.txt", 'w') as f:
                 for channel in n2_outliers:
@@ -389,6 +388,7 @@ def main():
             
         except Exception as e:
             print(f"Error processing subject {sub}: {str(e)}")
+            traceback.print_exc()
     
 if __name__ == "__main__":
     main()
