@@ -9,7 +9,7 @@ from pathlib import Path
 from config import BASE_DIR
 
 
-def find_subject_fif_file(subject_dir):
+def find_subject_fif_file(subject_dir, max_length=True):
     """Find appropriate .fif file for subject."""
     if not os.path.exists(subject_dir):
         print(f"Subject folder not found: {subject_dir}")
@@ -23,7 +23,10 @@ def find_subject_fif_file(subject_dir):
                   and not numbered_fif_pattern.match(os.path.basename(f))]
     
     if base_files:
-        raw_path = max(base_files, key=lambda x: len(os.path.basename(x)))
+        if max_length:
+            raw_path = max(base_files, key=lambda x: len(os.path.basename(x)))
+        else:
+            raw_path = min(base_files, key=lambda x: len(os.path.basename(x)))
         print(f"Using file: {os.path.basename(raw_path)}")
         return raw_path
     else:
