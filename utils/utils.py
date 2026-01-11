@@ -6,7 +6,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from config import BASE_DIR
 
 
 def find_subject_fif_file(subject_dir, max_length=True):

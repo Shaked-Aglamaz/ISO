@@ -6,7 +6,7 @@ import psutil
 import traceback
 import time
 
-from config import FACE_ELECTRODES, NECK_ELECTRODES, BASE_DIR
+from utils.config import FACE_ELECTRODES, NECK_ELECTRODES, BASE_DIR
 from utils import load_google_sheet
 
 

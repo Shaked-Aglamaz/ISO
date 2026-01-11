@@ -11,7 +11,7 @@ import mne
 import numpy as np
 import pandas as pd
 
-from config import BASE_DIR, EAR_ELECTRODES
+from utils.config import BASE_DIR, EAR_ELECTRODES
 from utils.utils import compare_raw_and_file_annotations, find_subject_fif_file, get_all_subjects
 
 

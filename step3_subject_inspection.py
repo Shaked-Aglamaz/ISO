@@ -7,7 +7,7 @@ from more_itertools import collapse
 import numpy as np
 from scipy import ndimage
 
-from config import BASE_DIR
+from utils.config import BASE_DIR
 from step2_auto_bad_channels import compute_sigma_power_stats
 from utils.utils import find_subject_fif_file, get_all_subjects
 
