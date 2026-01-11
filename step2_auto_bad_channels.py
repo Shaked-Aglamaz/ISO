@@ -1,4 +1,6 @@
 import os
+import sys
+from datetime import datetime
 from pathlib import Path
 import traceback
 
@@ -10,10 +12,28 @@ import numpy as np
 import pandas as pd
 
 from config import BASE_DIR, EAR_ELECTRODES
-from utils import compare_raw_and_file_annotations, find_subject_fif_file, get_all_subjects
+from utils.utils import compare_raw_and_file_annotations, find_subject_fif_file, get_all_subjects
 
 
 mne.set_log_level("error")
+
+
+class TeeOutput:
+    """Redirect stdout to both terminal and file."""
+    def __init__(self, log_file):
+        self.terminal = sys.stdout
+        self.log = open(log_file, 'w', encoding='utf-8')
+    
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+    
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+    
+    def close(self):
+        self.log.close()
 
 
 def compute_sigma_power_stats(raw, hypno_up, sigma_band=(12, 16)):
@@ -110,8 +130,8 @@ def analyze_sigma_power(
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
     
-    print(f"Analyzing sigma power for: {subject_id}")
-    print(f"{'='*80}")
+    print(f"\nAnalyzing sigma power for: {subject_id}")
+    print(f"{'-'*80}")
     
     print(f"Loading hypnogram...")
     hypno = np.loadtxt(hypno_path, dtype=int)
@@ -296,8 +316,8 @@ def reference_and_interpolate(raw, subject_dir, subject_id, output_suffix=None):
     4. Interpolate bad channels using spherical splines
     5. Save the cleaned data to a new file
     """
-    print(f"\nProcessing: {subject_id}")
-    print(f"{'='*80}")
+    print(f"\nProcessing channels: {subject_id}")
+    print(f"{'-'*80}")
 
     # === 1. Load manually marked bad channels ===
     bad_channels_file = subject_dir / f"{subject_id}_bad_channels.txt"
@@ -317,6 +337,8 @@ def reference_and_interpolate(raw, subject_dir, subject_id, output_suffix=None):
     else:
         print(f"⚠ No N2 outliers file found: {n2_outliers_file.name}")
 
+    out_channels = ["E35", "E29", "E62", "E94", "E201", "E113", "E122", "E123", "E221", "E93", "E194", "E176", "E189", "E202", "E192", "E193", "E211", "E55", "E223", "E2", "E3", "E69", "E56", "E75", "E222", "E13", "E47", "E212", "E150"]
+    n2_outliers = n2_outliers & set(out_channels)
     all_bad_channels = manual_bad_channels | n2_outliers
     existing_bad_channels = [ch for ch in all_bad_channels if ch in raw.ch_names]
     missing_channels = all_bad_channels - set(existing_bad_channels)
@@ -366,29 +388,50 @@ def main():
     DATA_DIR = Path(BASE_DIR) / "control_clean"
     HYPNO_DIR = Path(BASE_DIR) / "HC_hypno"
     
-    subjects = get_all_subjects(DATA_DIR)
-    for sub in subjects[-2:-1]:
-        sub_dir = DATA_DIR / sub
-        hypno_path = f"{HYPNO_DIR}/{sub}.txt"
-        try:
-            print("-" * 80)
-            eeg_path = find_subject_fif_file(sub_dir, max_length=False)
-            raw = mne.io.read_raw_fif(eeg_path, preload=False, verbose=False)
-            channels = [ch for ch in raw.ch_names if ch not in EAR_ELECTRODES]
-            raw.pick(channels)
-            raw.load_data()
-            set_annotations(raw, sub, sub_dir)
-            
-            _, n2_outliers = analyze_sigma_power(sub, raw, hypno_path, output_dir="young_control/sigma_boxplot/")
-            with open(f"{sub_dir}/n2_outliers.txt", 'w') as f:
-                for channel in n2_outliers:
-                    f.write(f"{channel}\n")
-
-            reference_and_interpolate(raw, sub_dir, sub)
-            
-        except Exception as e:
-            print(f"Error processing subject {sub}: {str(e)}")
-            traceback.print_exc()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_dir = Path("young_control/logs")
+    log_dir.mkdir(exist_ok=True, parents=True)
+    log_file = log_dir / f"step2_auto_bad_channels_{timestamp}.txt"
+    tee = TeeOutput(log_file)
+    sys.stdout = tee
     
+    try:
+        subjects = get_all_subjects(DATA_DIR)
+        
+        for sub in subjects:
+            sub_dir = DATA_DIR / sub
+            hypno_path = f"{HYPNO_DIR}/{sub}.txt"
+            try:
+                print("=" * 80)
+                print(f"Processing subject: {sub}")
+                eeg_path = find_subject_fif_file(sub_dir, max_length=False)
+                raw = mne.io.read_raw_fif(eeg_path, preload=False, verbose=False)
+                channels = [ch for ch in raw.ch_names if ch not in EAR_ELECTRODES]
+                raw.pick(channels)
+                raw.load_data()
+                set_annotations(raw, sub, sub_dir)
+                
+                _, n2_outliers = analyze_sigma_power(sub, raw, hypno_path, output_dir="young_control/sigma_boxplot/")
+                with open(f"{sub_dir}/n2_outliers.txt", 'w') as f:
+                    for channel in n2_outliers:
+                        f.write(f"{channel}\n")
+
+                reference_and_interpolate(raw, sub_dir, sub)
+                
+            except Exception as e:
+                print(f"Error processing subject {sub}: {str(e)}")
+                traceback.print_exc()
+        
+        print(f"\n{'='*80}")
+        print(f"PROCESSING COMPLETE")
+        print(f"End time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{'='*80}")
+        
+    finally:
+        # Restore stdout and close log file
+        sys.stdout = tee.terminal
+        tee.close()
+        print(f"\n✓ Log saved to: {log_file}")
+
 if __name__ == "__main__":
     main()

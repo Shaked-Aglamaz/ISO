@@ -9,7 +9,7 @@ from scipy import ndimage
 
 from config import BASE_DIR
 from step2_auto_bad_channels import compute_sigma_power_stats
-from utils import find_subject_fif_file, get_all_subjects
+from utils.utils import find_subject_fif_file, get_all_subjects
 
 
 mne.set_log_level("error")
@@ -311,8 +311,7 @@ def main():
     DATA_DIR = Path(BASE_DIR) / "control_clean"
     HYPNO_DIR = Path(BASE_DIR) / "HC_hypno"
 
-    # subjects = get_all_subjects(DATA_DIR)
-    subjects = ["SB00"]
+    subjects = get_all_subjects(DATA_DIR)
     channels_per_sub = {}
     for sub in subjects:
         sub_dir = DATA_DIR / sub
