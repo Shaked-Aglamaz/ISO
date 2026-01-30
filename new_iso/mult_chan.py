@@ -97,7 +97,6 @@ def extract_clean_sleep_bouts(raw, include_n3=False, min_bout_duration=300):
                 merged_segments.append((current_start, current_end))
                 current_start, current_end = start, end
         merged_segments.append((current_start, current_end))
-        import ipdb; ipdb.set_trace(context=10)
         clean_segments = merged_segments
     
     # Filter by minimum duration
