@@ -29,9 +29,14 @@ def fit_gaussian(frequencies, power, plot_data):
     threshold = np.nanstd(power) * 1.5
     freq_range = [0.0075, 0.04]
     
-    # Validation: Check if peak is within valid range and above threshold
-    if not (peak_power_fit >= threshold and freq_range[0] <= peak_freq_fit <= freq_range[1]):
-        plot_data['failure_reason'] = f'Peak outside valid range (peak={peak_freq_fit:.6f} Hz, threshold={threshold:.6f})'
+    # Check if peak power is above threshold
+    if peak_power_fit < threshold:
+        plot_data['failure_reason'] = f'Peak power below threshold (power={peak_power_fit:.6f}, threshold={threshold:.6f})'
+        return (np.nan, np.nan, np.nan, np.nan), plot_data
+    
+    # Check if peak frequency is within valid range
+    if not (freq_range[0] <= peak_freq_fit <= freq_range[1]):
+        plot_data['failure_reason'] = f'Peak frequency outside valid range (freq={peak_freq_fit:.6f} Hz, valid range=[{freq_range[0]}, {freq_range[1]}])'
         return (np.nan, np.nan, np.nan, np.nan), plot_data
     
     # Calculate bandwidth
