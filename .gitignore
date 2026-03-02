@@ -35,6 +35,11 @@ tmp/
 young_control/
 elderly_control/
 new_iso_results/
+new_elderly_results/
+logs/
+new_MCI_results/
+MCI_results/
+group_comparison_results/
 
 oct20 - distribution_analysis/
 distribution_analysis/
