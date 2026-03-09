@@ -139,6 +139,7 @@ def load_google_sheet():
 def merge_consecutive_annotations(raw, inplace=True, tolerance=0.001):
     """
     Merge consecutive annotations of the same type into single annotations.
+    Skips over annotations of different types to find mergeable ones.
     """
     if not hasattr(raw, 'annotations') or len(raw.annotations) == 0:
         print("⚠ No annotations found to merge.")
@@ -164,33 +165,38 @@ def merge_consecutive_annotations(raw, inplace=True, tolerance=0.001):
     
     # Merge consecutive annotations of the same type
     merged = []
-    i = 0
+    processed = set()  # Track which indices we've already processed
     
-    while i < len(annot_list):
+    for i in range(len(annot_list)):
+        if i in processed:
+            continue
+            
         current = annot_list[i].copy()
+        processed.add(i)
         
-        # Look ahead for consecutive annotations of the same type
-        j = i + 1
-        while j < len(annot_list):
+        # Look ahead for all annotations of the same type that overlap/touch
+        for j in range(i + 1, len(annot_list)):
+            if j in processed:
+                continue
+                
             next_annot = annot_list[j]
             
-            # Check if:
-            # 1. Same description (type)
-            # 2. Consecutive or overlapping (within tolerance)
+            # Check if same type and consecutive/overlapping
             is_same_type = next_annot['description'] == current['description']
             is_consecutive = next_annot['onset'] <= current['end'] + tolerance
             
             if is_same_type and is_consecutive:
                 # Merge: extend the end time to include next annotation
+                old_end = current['end']
                 current['end'] = max(current['end'], next_annot['end'])
                 current['duration'] = current['end'] - current['onset']
-                j += 1
-            else:
-                # Different type or gap too large, stop merging this segment
+                processed.add(j)
+            elif is_same_type:
+                # Same type but not consecutive, stop looking
                 break
+            # Different type: skip and continue looking
         
         merged.append(current)
-        i = j  # Continue from the next unmerged annotation
     
     # Create new MNE Annotations object
     onsets = np.array([a['onset'] for a in merged])
@@ -209,13 +215,10 @@ def merge_consecutive_annotations(raw, inplace=True, tolerance=0.001):
     reduction = n_original - n_merged
     reduction_pct = (reduction / n_original * 100) if n_original > 0 else 0
     
-    print(f"✓ Merged {n_original} → {n_merged} annotations "
-          f"(reduced by {reduction}, {reduction_pct:.1f}%)")
+    print(f"✓ Merged {n_original} → {n_merged} annotations (reduced by {reduction}, {reduction_pct:.1f}%)")
     
-    # Apply changes
     if inplace:
         raw.set_annotations(new_annotations)
-        return raw
     else:
         return new_annotations
 
