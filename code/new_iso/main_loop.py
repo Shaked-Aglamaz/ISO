@@ -15,7 +15,7 @@ from utils.utils import find_subject_fif_file
 
 
 frequency_steps = np.arange(13, 16.2, 0.2) 
-source_folder = Path(r'I:\Shaked\ISO_data\control_clean')
+source_folder = Path('I:/Shaked/ISO_data/MCI_clean/a_the_rest')
 
 
 def save_bouts_info(bout_metadata, s_freq, subject_id, output_dir):
@@ -178,7 +178,7 @@ def main():
             n_bouts = bout_metadata.shape[1]
             pf_all_channels, bw_all_channels, auc_all_channels, pp_all_channels = [], [], [], []
             failure_reasons = []  # Track failure reasons for all channels
-            subject_output_dir = Path(f"new_iso_results/{subject_id}")
+            subject_output_dir = Path(f"results/new_MCI_results/{subject_id}")
             subject_output_dir.mkdir(parents=True, exist_ok=True)
             
             save_bouts_info(bout_metadata, s_freq, subject_id, subject_output_dir)

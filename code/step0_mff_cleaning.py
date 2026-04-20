@@ -1,13 +1,17 @@
 import os
 import gc
+import glob
 import mne
 import numpy as np
 import psutil
 import traceback
 import time
+from dateutil import parser
 
-from utils.config import FACE_ELECTRODES, NECK_ELECTRODES, BASE_DIR
-from utils import load_google_sheet
+from utils.config import FACE_ELECTRODES, NECK_ELECTRODES, BASE_DIR, EAR_ELECTRODES
+from utils.utils import load_google_sheet, find_subject_fif_file
+
+mne.set_log_level('WARNING')
 
 
 def load_subject_cleaning_mapping():
@@ -125,7 +129,7 @@ def apply_filtering(raw):
         del processed_channels
         gc.collect()
         
-        print("  ✓ Dynamic channel-wise filtering completed")
+        print("  OK: Dynamic channel-wise filtering completed")
         
         # Return the combined raw object instead of trying to modify in-place
         return raw_combined
@@ -142,12 +146,12 @@ def apply_filtering(raw):
     # Make data contiguous
     raw._data = np.ascontiguousarray(raw._data)
     
-    print("  ✓ Filtering completed")
+    print("  OK: Filtering completed")
     return None  # Return None for normal processing (raw object modified in-place)
 
 
 def resample_and_filter(raw):
-    excluded_channels = set(FACE_ELECTRODES + NECK_ELECTRODES)
+    excluded_channels = set(FACE_ELECTRODES + NECK_ELECTRODES + EAR_ELECTRODES)
     channel_types = raw.get_channel_types()
     channels = [ch for ch, ch_type in zip(raw.ch_names, channel_types) 
                 if ch not in excluded_channels and ch_type == 'eeg']
@@ -158,29 +162,31 @@ def resample_and_filter(raw):
     
     if raw.info['sfreq'] != 250:
         print("  Step 1: Resampling to 250 Hz...")
+        resample_start = time.time()
         raw.resample(250)
+        print(f"    Resample took: {time.time() - resample_start:.1f} seconds")
+    
+    print("  Loading data into memory...")
+    load_start = time.time()
     raw.load_data()
+    print(f"    Load took: {time.time() - load_start:.1f} seconds")
+    
     print("  Step 2: Applying notch filter...")
-    raw.notch_filter((50, 100, 150, 200), method='spectrum_fit', phase='zero-double')
+    notch_start = time.time()
+    # After resampling to 250 Hz, Nyquist is 125 Hz
+    # Can only filter 50 Hz and 100 Hz (150 and 200 are above Nyquist)
+    raw.notch_filter([50, 100], method='fir', phase='zero', verbose=True, n_jobs=-1)
+    print(f"    Notch filter took: {time.time() - notch_start:.1f} seconds")
+    
     print("  Step 3: Applying band-pass filter (0.1-40 Hz)...")
-    raw.filter(l_freq=0.1, h_freq=40, phase='zero-double')
+    filter_start = time.time()
+    # Using n_jobs=-1 to use all CPU cores
+    raw.filter(l_freq=0.1, h_freq=40, phase='zero', verbose=True, n_jobs=-1)
+    print(f"    Band-pass filter took: {time.time() - filter_start:.1f} seconds")
 
 
-def add_annotations(raw, sub, cleaning_id, annotations_dir):
-    if not cleaning_id:
-        raise KeyError(f"No cleaning ID found for subject {sub}") 
-    
-    search_dirs = ["output_files", "mayas_output"]
-    annotations_path = None
-    for subdir in search_dirs:
-        potential_path = f"{annotations_dir}/{subdir}/{cleaning_id}_annotations.txt"
-        if os.path.exists(potential_path):
-            annotations_path = potential_path
-            break
-    
-    if not annotations_path:
-        raise KeyError(f"Warning: No annotations found for subject {sub} ({cleaning_id})")
-    
+def add_annotations(raw, annotations_path):
+
     annotations = mne.read_annotations(annotations_path)
     # Extract orig_time from annotations file for verification
     with open(annotations_path, 'r') as f:
@@ -189,21 +195,32 @@ def add_annotations(raw, sub, cleaning_id, annotations_dir):
         if orig_time_line:
             annotations_orig_time = orig_time_line[0].strip().split(' : ')[1]
             raw_orig_time = str(raw.info['meas_date'])
-            print(f"Annotations orig_time: {annotations_orig_time}")
-            print(f"Raw data meas_date: {raw_orig_time}")
+            if parser.parse(raw_orig_time, ignoretz=True) != parser.parse(annotations_orig_time, ignoretz=True):
+                raise ValueError(f"orig_time mismatch: annotations ({annotations_orig_time}) vs raw ({raw_orig_time})")
     
     raw.set_annotations(annotations)
 
 
-def add_sleep_scoring(raw, sub):
-    hypnogram_path = f"{BASE_DIR}/HC_hypno/{sub}.txt"
-    hypno = np.loadtxt(hypnogram_path, dtype=int)
+def add_sleep_scoring(raw, sub, epoch_duration, hypnogram_path=None):
+    """
+    Add sleep scoring annotations to raw data.
+    epoch_duration : int, Duration of each epoch in seconds (usually 30 or 1)
+    hypnogram_path : str, optional. If None, defaults to {BASE_DIR}/scoring/MCI/{sub}_hypno.txt
+    """
+    if hypnogram_path is None:
+        hypnogram_path = f"{BASE_DIR}/scoring/MCI/{sub}_hypno.txt"
+    
+    # Read file and convert W→0, R→4
+    stage_mapping = {'W': 0, 'R': 4, '?': 0}
+    with open(hypnogram_path, 'r') as f:
+        hypno = np.array([stage_mapping[val] if val in stage_mapping else int(val) 
+                          for val in (line.strip() for line in f)])
 
-    expected_epochs = int(raw.times[-1])
-    diff_mins = np.abs((expected_epochs - len(hypno)) / 60)
+    expected_epochs = int(raw.times[-1]) // epoch_duration
+    diff_mins = np.abs((expected_epochs - len(hypno)) * epoch_duration / 60)
     if len(hypno) > expected_epochs:
         hypno = hypno[:expected_epochs]
-        note_message = f"hypno is longer by {diff_mins:.2f} minutes"
+        note_message = f"hypno is longer by {diff_mins:.2f} minutes (epoch_duration={epoch_duration}s)"
         print(note_message)
         
         os.makedirs("notes", exist_ok=True)
@@ -212,18 +229,18 @@ def add_sleep_scoring(raw, sub):
 
     stage_map = {-1: 'UNKNOWN', 0: 'Wake', 1: 'NREM1', 2: 'NREM2', 3: 'NREM3', 4: 'REM'}
 
-    # Collapse into annotation blocks
+    # Collapse into annotation blocks (convert indices to seconds)
     onsets, durations, descriptions = [], [], []
     start, current = 0, hypno[0]
     for i in range(1, len(hypno)):
         if hypno[i] != current:
-            onsets.append(start)
-            durations.append(i - start)
+            onsets.append(start * epoch_duration)
+            durations.append((i - start) * epoch_duration)
             descriptions.append(stage_map.get(current, 'UNKNOWN'))
             start, current = i, hypno[i]
 
-    onsets.append(start)
-    durations.append(len(hypno) - start)
+    onsets.append(start * epoch_duration)
+    durations.append((len(hypno) - start) * epoch_duration)
     descriptions.append(stage_map.get(current, 'UNKNOWN'))
 
     sleep_annot = mne.Annotations(onsets, durations, descriptions, raw.annotations.orig_time)
@@ -233,117 +250,125 @@ def add_sleep_scoring(raw, sub):
     raw.set_annotations(annotations + sleep_annot)
 
 
-def save_processed_raw(raw, sub):
-    """Save processed raw data"""
-    subject_folder = f'{BASE_DIR}/control_clean/{sub}'
-    os.makedirs(subject_folder, exist_ok=True)
-    
+def save_processed_raw(raw, sub, output_dir):
+    """Save processed raw data and its annotations into output_dir."""
+    os.makedirs(output_dir, exist_ok=True)
+
     n_channels = len(raw.ch_names)
-    title = f"{n_channels}-head-ch_resample250_filtered_scored_bad-epochs"
-    
-    output_path = f'{subject_folder}/{sub}_{title}.fif'
+    title = f"{n_channels}-head-ch_resample250_filtered_scored_bad-epochs_raw"
+
+    output_path = f'{output_dir}/{sub}_{title}.fif'
     raw.save(output_path, overwrite=True)
-    annotations_output_path = f'{subject_folder}/{sub}_annotations.txt'
+    annotations_output_path = f'{output_dir}/{sub}_annotations.txt'
     raw.annotations.save(annotations_output_path)
-    
-    print(f"  Files saved to subject folder: {subject_folder}")
+
+    print(f"  Files saved to: {output_dir}")
 
 
 def main():
-    # Set MNE to use less memory
-    mne.set_config('MNE_MEMMAP_MIN_SIZE', '1M')  # Use memory mapping for large arrays
-    mne.set_config('MNE_CACHE_DIR', None)  # Disable caching to save memory
-    mne.set_config('MNE_USE_NUMBA', 'false')  # Disable numba to save memory
-    
-    subject_to_cleaning_id = load_subject_cleaning_mapping()
-    annotations_dir = f"{BASE_DIR}/bad_annotations"
+    # Set MNE to use less memory and enable parallel processing cache
+    mne.set_config('MNE_MEMMAP_MIN_SIZE', '1M')
+    mne.set_config('MNE_CACHE_DIR', 'I:/Shaked/ISO/tmp/mne_cache')
+    mne.set_config('MNE_USE_NUMBA', 'false')
+    os.makedirs('I:/Shaked/ISO/tmp/mne_cache', exist_ok=True)
+
+    # ── Configuration for elderly control MCI subjects ──
+    input_dir = "E:/May/May_MCI_clean/input_files"
     directory = f"{BASE_DIR}/control_raw"
-    
+    annotations_dir = "E:/May/May_MCI_clean"
+
+
     error_by_subject = {}
     files = sorted(os.listdir(directory))
     n_subjects = len(files)
-    
+
     for i, file in enumerate(files):
+        sub = file.split('_')[0]
+        output_dir = f'{BASE_DIR}/elderly_control_clean/a_the_rest/{sub}'
+        if os.path.exists(output_dir):
+            print(f"Skipping {sub} - already processed")
+            continue
+
         iteration_start_time = time.time()
-        raw = None  # Initialize to None for proper cleanup
-        sub = file.split('_')[0]      
-        
+        raw = None
+
         print(f"\n{'='*60}")
-        print(f"PROCESSING SUBJECT {i}/{n_subjects}: {sub}")
+        print(f"PROCESSING SUBJECT {i+1}/{n_subjects}: {sub}")
         print(f"{'='*60}")
-        
+
         try:
             step = "loading"
             step_start_time = time.time()
             print(f"{step}: {sub}")
             raw = mne.io.read_raw(os.path.join(directory, file), preload=False)
             step_duration = time.time() - step_start_time
-            print(f"  ✓ {step} completed in {step_duration:.1f} seconds")
+            print(f"  OK: {step} completed in {step_duration:.1f} seconds")
 
             step = "filtering"
             step_start_time = time.time()
             print(f"{step}: {sub}")
             resample_and_filter(raw)
+            n_channels = len(raw.ch_names)
+            assert n_channels == 176, f"Expected 176 channels, got {n_channels}"
             step_duration = time.time() - step_start_time
-            print(f"  ✓ {step} completed in {step_duration:.1f} seconds")
-            
-            step = "annotating"
+            print(f"  OK: {step} completed in {step_duration:.1f} seconds ({n_channels} channels)")
+
+            step = "annotations"
             step_start_time = time.time()
             print(f"{step}: {sub}")
-            cleaning_id = subject_to_cleaning_id.get(sub, None)
-            add_annotations(raw, sub, cleaning_id, annotations_dir)
+            annot_folders = glob.glob(os.path.join(annotations_dir, f"{sub}_*"))
+            if not annot_folders:
+                raise FileNotFoundError(f"No annotation folder found for {sub} in {annotations_dir}")
+            annot_path = os.path.join(annot_folders[0], "CleaningPipe", "annotations.txt")
+            add_annotations(raw, annot_path)
             step_duration = time.time() - step_start_time
-            print(f"  ✓ {step} completed in {step_duration:.1f} seconds")
-            
+            print(f"  OK: {step} completed in {step_duration:.1f} seconds")
+
             step = "sleep scoring"
             step_start_time = time.time()
             print(f"{step}: {sub}")
-            add_sleep_scoring(raw, sub)
+            hypno_path = f"{BASE_DIR}/scoring/elderly_control/{sub}_hypno.txt"
+            add_sleep_scoring(raw, sub, epoch_duration=30, hypnogram_path=hypno_path)
             step_duration = time.time() - step_start_time
-            print(f"  ✓ {step} completed in {step_duration:.1f} seconds")
-            
+            print(f"  OK: {step} completed in {step_duration:.1f} seconds")
+
             step = "saving"
             step_start_time = time.time()
-            print(f"{step}: {sub}")
-            save_processed_raw(raw, sub)
+            print(f"{step}: {sub} ->{output_dir}")
+            save_processed_raw(raw, sub, output_dir)
             step_duration = time.time() - step_start_time
-            print(f"  ✓ {step} completed in {step_duration:.1f} seconds")
-            
-            # Calculate total iteration time
+            print(f"  OK: {step} completed in {step_duration:.1f} seconds")
+
             iteration_duration = time.time() - iteration_start_time
-            print(f"\n🎉 Subject {sub} processed successfully!")
-            print(f"⏱️  Total time: {iteration_duration:.1f} seconds ({iteration_duration/60:.1f} minutes)")
-        
+            print(f"\nSubject {sub} processed successfully!")
+            print(f"  Total time: {iteration_duration:.1f} seconds ({iteration_duration/60:.1f} minutes)")
+
         except Exception as e:
             iteration_duration = time.time() - iteration_start_time
             error_traceback = traceback.format_exc()
             error_by_subject[sub] = (step, e, error_traceback)
-            print(f"✗ Error in {step} for {sub}: {e}")
-            print(f"⏱️  Time before error: {iteration_duration:.1f} seconds ({iteration_duration/60:.1f} minutes)")
+            print(f"FAIL: Error in {step} for {sub}: {e}")
+            print(f"  Time before error: {iteration_duration:.1f} seconds ({iteration_duration/60:.1f} minutes)")
             print(f"Full traceback:\n{error_traceback}")
-        
+
         finally:
             if raw is not None:
-                raw.close()  # Close file handles
-                del raw  # Delete the raw object
-            
+                raw.close()
+                del raw
             for _ in range(3):
                 gc.collect()
-            
-            # Print memory usage after cleanup (optional debug info)
             memory_usage_mb = psutil.Process().memory_info().rss / 1024 / 1024
             available_gb = psutil.virtual_memory().available / (1024**3)
             print(f"  Memory after cleanup: {memory_usage_mb:.1f} MB used, {available_gb:.1f} GB available")
-            
+
     gc.collect()
-    
+
     if error_by_subject:
         print(f"\nProcessing completed: {n_subjects - len(error_by_subject)}/{n_subjects} successful")
         print("Errors encountered:")
         for sub, error_info in error_by_subject.items():
             step, error, traceback_str = error_info
             print(f"  {sub}: Failed at {step} - {error}")
-            # Print last few lines of traceback for context
             traceback_lines = traceback_str.strip().split('\n')
             print(f"    Last error line: {traceback_lines[-1]}")
     else:

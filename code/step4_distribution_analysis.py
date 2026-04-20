@@ -14,6 +14,99 @@ from utils.config import BASE_DIR
 from utils.utils import get_all_subjects
 
 
+def normalize_subject_channels(values):
+    """
+    Normalize a single subject's channel values by their mean.
+    Handles NaN (missing ISFS) and 3-sigma outliers.
+
+    Steps:
+    1. Impute NaN with mean of valid (detectable) channels
+    2. Detect 3-sigma outliers, compute mean without them
+    3. Divide ALL values by the cleaned mean
+
+    Parameters:
+    -----------
+    values : np.ndarray
+        Raw metric values per channel for one subject
+
+    Returns:
+    --------
+    np.ndarray : normalized values (mean ≈ 1.0)
+    """
+    values = values.copy().astype(float)
+
+    # Step 1: Impute NaN with mean of valid channels
+    if np.any(np.isnan(values)):
+        values = np.where(np.isnan(values), np.nanmean(values), values)
+
+    # Step 2-3: Normalize by cleaned mean
+    mean_val = np.mean(values)
+    std_val = np.std(values)
+
+    if std_val > 0:
+        outlier_mask = np.abs(values - mean_val) > 3 * std_val
+        if np.any(outlier_mask):
+            cleaned = values.copy()
+            cleaned[outlier_mask] = np.nan
+            clean_mean = np.nanmean(cleaned)
+        else:
+            clean_mean = mean_val
+        if clean_mean > 0:
+            values = values / clean_mean
+    elif mean_val > 0:
+        values = values / mean_val
+
+    return values
+
+
+def compute_per_subject_normalized_averages(subjects, dir_path):
+    """
+    Load per-subject data, normalize each subject's channels by their own mean,
+    then average the normalized values across subjects.
+
+    This preserves spatial patterns equally across subjects regardless of
+    absolute magnitude differences (e.g., age-related global power shifts).
+
+    Returns:
+    --------
+    pd.DataFrame with columns: 'channel', 'avg_peak_frequency', 'avg_bandwidth', 'avg_auc'
+        (same format as filter_eeg_channels output)
+    """
+    metrics = ['peak_frequency', 'bandwidth', 'auc']
+
+    # Load all subjects
+    subjects_data = []
+    for subject in subjects:
+        data = load_subject_data(subject, dir_path=dir_path)
+        if data is not None:
+            subjects_data.append(data)
+
+    if not subjects_data:
+        return None
+
+    # Get union of all channels
+    all_channels = sorted(set(ch for sd in subjects_data for ch in sd['channel'].tolist()))
+
+    # For each subject, extract values and normalize per metric
+    normalized = {m: [] for m in metrics}
+    for sd in subjects_data:
+        sd_indexed = sd.set_index('channel')
+        for metric in metrics:
+            values = np.array([
+                sd_indexed.loc[ch, metric] if ch in sd_indexed.index else np.nan
+                for ch in all_channels
+            ], dtype=float)
+            normalized[metric].append(normalize_subject_channels(values))
+
+    # Average normalized values across subjects
+    result = pd.DataFrame({'channel': all_channels})
+    for metric in metrics:
+        stacked = np.array(normalized[metric])
+        result[f'avg_{metric}'] = np.mean(stacked, axis=0)
+
+    return result
+
+
 def filter_subjects_by_detection_rate(subjects, min_detection_rate=0.2, dir_path=None):
     """ Filter subjects based on their ISFS detection rate. """
     print(f"Filtering subjects by detection rate (>= {min_detection_rate*100:.0f}%)...")
@@ -341,14 +434,7 @@ def plot_single_topography(values, info, ax, metric_info, normalize=True):
     n_plotted = np.sum(~np.isnan(cleaned_values))
     mean_value = np.nanmean(cleaned_values)
 
-    # Prepare data for plotting
-    if normalize:
-        if mean_value == 0:
-            plot_values = cleaned_values
-        else:
-            plot_values = cleaned_values / mean_value
-    else:
-        plot_values = cleaned_values
+    plot_values = cleaned_values
     title = f'{metric_info["name"]}\n(Mean = {mean_value:.3f} {metric_info["unit"]})'
 
     # Add data availability info to title
@@ -436,25 +522,31 @@ def plot_topographies(subjects, normalize=True, output_dir=None, group_name=""):
     print(f"{'='*60}")
     print(f"TOPOGRAPHY ANALYSIS - {'Subject ' + subjects[0] if len(subjects) == 1 else f'{len(subjects)} Subjects'}")
 
-    combined_data = load_and_combine_subject_data(subjects, group)
-    if combined_data is None:
-        return
-    
-    # Print data summary before filtering
-    if 'gaussian_fit_failed' in combined_data.columns:
-        total_channels = len(combined_data)
-        failed_channels = combined_data[combined_data['gaussian_fit_failed'] == True]
-        n_failed = len(failed_channels)
-        n_successful = total_channels - n_failed
-        
-        print(f"📊 Raw Data Summary:")
-        print(f"   Successful ISFS detection: {n_successful} channels")
-        print(f"   Failed ISFS detection: {n_failed} channels ({failed_channels['channel'].head(5).tolist()}{'...' if n_failed > 5 else ''})")
+    if normalize and len(subjects) > 1:
+        # Per-subject normalization before averaging (preserves spatial patterns equally)
+        channel_averages = compute_per_subject_normalized_averages(subjects, output_dir)
+        if channel_averages is None:
+            return
+    else:
+        combined_data = load_and_combine_subject_data(subjects, output_dir)
+        if combined_data is None:
+            return
 
-    channel_averages = filter_eeg_channels(combined_data)
-    if channel_averages is None:
-        return
-    
+        # Print data summary before filtering
+        if 'gaussian_fit_failed' in combined_data.columns:
+            total_channels = len(combined_data)
+            failed_channels = combined_data[combined_data['gaussian_fit_failed'] == True]
+            n_failed = len(failed_channels)
+            n_successful = total_channels - n_failed
+
+            print(f"📊 Raw Data Summary:")
+            print(f"   Successful ISFS detection: {n_successful} channels")
+            print(f"   Failed ISFS detection: {n_failed} channels ({failed_channels['channel'].head(5).tolist()}{'...' if n_failed > 5 else ''})")
+
+        channel_averages = filter_eeg_channels(combined_data)
+        if channel_averages is None:
+            return
+
     info, channel_averages_filtered, channel_names = setup_electrode_info(channel_averages)
     if info is None:
         return
@@ -881,49 +973,56 @@ def plot_raw_channel_peak_frequency_violin(subjects, dir_path):
 
 
 def main():
-    """Run distribution analysis across all subjects."""
-    subjects = get_all_subjects(f"{BASE_DIR}/control_clean/")
-    if not subjects:
-        print("No subjects found!")
-        return
-
-    output_dir = Path("results/new_iso_results")
-    output_dir.mkdir(exist_ok=True)
-    group_name = "Young"
-    subjects = [sub for sub in subjects if (output_dir / sub).exists() and sub != "dashboards"]
-    subjects, _ = filter_subjects_by_detection_rate(subjects, dir_path=output_dir)
-    if not subjects:
-        print("No subjects meet the detection rate criteria!")
-        return
-
-    # 1. Group-level violin: each subject averaged across all channels (subjects as dots)
-    plot_group_average_violin(subjects, output_dir)
-
-    # 2. Per-subject violin: distribution across all channels within each subject (channels as dots)
-    for sub in subjects:
-        plot_subject_all_channels_violin(sub, output_dir)
-
-    # 3. Single-channel violin: one channel across all subjects (subjects as dots)
+    """Run distribution analysis across all subjects for all three groups."""
+    group_configs = [
+        ("Young",   f"{BASE_DIR}/control_clean/",         Path("results/new_iso_results")),
+        ("Elderly", f"{BASE_DIR}/elderly_control_clean/", Path("results/new_elderly_results")),
+        ("MCI",     f"{BASE_DIR}/MCI_clean/",             Path("results/new_MCI_results")),
+    ]
     target_channel = "E101"
-    df = collect_all_data(subjects, target_channel, output_dir)
-    if df is not None:
-        plot_single_channel_violin(df, output_dir, target_channel)
 
-    # 4. Peak channel-level violin: raw channels pooled across all subjects (channels as dots, no averaging)
-    plot_raw_channel_peak_frequency_violin(subjects, output_dir)
+    for group_name, data_dir, output_dir in group_configs:
+        print(f"\n{'#'*80}\n  GROUP: {group_name}\n{'#'*80}")
+        subjects = get_all_subjects(data_dir)
+        if not subjects:
+            print(f"No subjects found for {group_name}!")
+            continue
 
-    # 5. Group spectral power: averaged across all channels and subjects
-    plot_group_spectral_power(subjects, output_dir, target_channel=None, smoothing_window=5, aggregate_channels=True)
+        output_dir.mkdir(exist_ok=True, parents=True)
+        subjects = [sub for sub in subjects if (output_dir / sub).exists() and sub != "dashboards"]
+        subjects, _ = filter_subjects_by_detection_rate(subjects, dir_path=output_dir)
+        if not subjects:
+            print(f"No {group_name} subjects meet the detection rate criteria!")
+            continue
 
-    # 6. Single-channel spectral power: one channel averaged across subjects
-    plot_group_spectral_power(subjects, output_dir, target_channel="VREF", smoothing_window=5, aggregate_channels=False)
+        # 1. Group-level violin: each subject averaged across all channels
+        plot_group_average_violin(subjects, output_dir)
 
-    # 7. Group topographies: spatial maps averaged across all subjects
-    plot_topographies(subjects, normalize=True, output_dir=output_dir, group_name=group_name)
+        # 2. Per-subject violin: distribution across all channels within each subject (channels as dots)
+        for sub in subjects:
+            plot_subject_all_channels_violin(sub, output_dir)
 
-    # 8. Per-subject topographies: spatial maps for each individual subject
+        # 3. Single-channel violin: one channel across all subjects
+        df = collect_all_data(subjects, target_channel, output_dir)
+        if df is not None:
+            plot_single_channel_violin(df, output_dir, target_channel)
+
+        # 4. Peak channel-level violin: raw channels pooled across all subjects
+        plot_raw_channel_peak_frequency_violin(subjects, output_dir)
+
+        # 5. Group spectral power: averaged across all channels and subjects
+        plot_group_spectral_power(subjects, output_dir, target_channel=None, smoothing_window=5, aggregate_channels=True)
+
+        # 6. Single-channel spectral power: VREF averaged across subjects
+        plot_group_spectral_power(subjects, output_dir, target_channel="VREF", smoothing_window=5, aggregate_channels=False)
+
+        # 7. Group topographies: spatial maps averaged across all subjects (normalized + raw)
+        plot_topographies(subjects, normalize=True,  output_dir=output_dir, group_name=group_name)
+        plot_topographies(subjects, normalize=False, output_dir=output_dir, group_name=group_name)
+
+        # 8. Per-subject topographies: spatial maps for each individual subject
     for sub in subjects:
-        sub_output_dir = Path(f"new_iso_results/{sub}/")
+        sub_output_dir = Path(f"results/new_iso_results/{sub}/")
         sub_output_dir.mkdir(exist_ok=True, parents=True)
         plot_topographies([sub], normalize=False, subject_dir_suffix=None, output_dir=sub_output_dir, group="new_iso_results")
 

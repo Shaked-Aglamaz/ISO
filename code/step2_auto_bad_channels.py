@@ -25,7 +25,11 @@ class TeeOutput:
         self.log = open(log_file, 'w', encoding='utf-8')
     
     def write(self, message):
-        self.terminal.write(message)
+        try:
+            self.terminal.write(message)
+        except UnicodeEncodeError:
+            enc = getattr(self.terminal, 'encoding', None) or 'ascii'
+            self.terminal.write(message.encode(enc, 'replace').decode(enc))
         self.log.write(message)
     
     def flush(self):
@@ -86,6 +90,54 @@ def compute_sigma_power_stats(raw, hypno_up, sigma_band=(12, 16)):
     return channel_stats
 
 
+def extract_hypno_from_annotations(raw):
+    """
+    Extract hypnogram array from sleep stage annotations in raw data.
+    
+    Parameters
+    ----------
+    raw : mne.io.Raw
+        Raw object with sleep stage annotations
+    
+    Returns
+    -------
+    hypno_up : np.ndarray
+        Hypnogram array upsampled to match raw data sampling rate
+        Values: 0=Wake, 1=NREM1, 2=NREM2, 3=NREM3, 4=REM, -1=UNKNOWN
+    """
+    # Stage name to integer mapping
+    stage_map = {
+        'Wake': 0,
+        'NREM1': 1, 'N1': 1,
+        'NREM2': 2, 'N2': 2,
+        'NREM3': 3, 'N3': 3,
+        'REM': 4,
+        'UNKNOWN': -1
+    }
+    
+    # Initialize hypnogram array with -1 (unknown)
+    n_samples = raw.n_times
+    hypno_up = np.full(n_samples, -1, dtype=int)
+    
+    # Get sampling frequency
+    sfreq = raw.info['sfreq']
+    
+    # Extract sleep stage annotations
+    for annot in raw.annotations:
+        # Check if this is a sleep stage annotation
+        stage_value = stage_map.get(annot['description'])
+        if stage_value is not None:
+            # Convert onset and duration from seconds to samples
+            onset_sample = int(annot['onset'] * sfreq)
+            duration_samples = int(annot['duration'] * sfreq)
+            end_sample = min(onset_sample + duration_samples, n_samples)
+            
+            # Fill in the hypnogram for this stage
+            hypno_up[onset_sample:end_sample] = stage_value
+    
+    return hypno_up
+
+
 def get_outliers(data, channel_names):
     """Get outlier channels using IQR method."""
     q1 = np.percentile(data, 25)
@@ -105,50 +157,48 @@ def get_outliers(data, channel_names):
 def analyze_sigma_power(
     subject_id,
     raw,
-    hypno_path,
     output_dir,
-    hypno_freq=1,
+    manual_bad_channels=None,
     sigma_band=(12, 16),
 ):
     """
     Create boxplot of sigma power across all channels for a subject.
     
     Shows distribution of N2 sigma power, Wake/REM sigma power, and their ratio
-    across all EEG channels.
+    across all EEG channels (excluding manually marked bad channels).
     
     Args:
         subject_id: Subject identifier
-        raw: Raw EEG data object
-        hypno_path: Path to hypnogram file
-        hypno_freq: Hypnogram sampling frequency (Hz)
+        raw: Raw EEG data object (must have sleep stage annotations)
+        output_dir: Directory to save plot
+        manual_bad_channels: List/set of manually marked bad channels to exclude
         sigma_band: Frequency band for sigma (default: 12-16 Hz)
-        output_dir: Optional directory to save plot
     
     Returns:
-        dict: Channel statistics
+        tuple: (channel_stats dict, n2_outliers list)
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
     
+    if manual_bad_channels is None:
+        manual_bad_channels = set()
+    
     print(f"\nAnalyzing sigma power for: {subject_id}")
     print(f"{'-'*80}")
     
-    print(f"Loading hypnogram...")
-    hypno = np.loadtxt(hypno_path, dtype=int)
-    # Upsample hypnogram
-    sfreq = raw.info['sfreq']
-    repeats = int(sfreq / hypno_freq)
-    hypno_up = np.repeat(hypno, repeats)
+    # Exclude manually marked bad channels from analysis
+    if len(manual_bad_channels) > 0:
+        print(f"Excluding {len(manual_bad_channels)} manually marked bad channels from analysis")
+        good_channels = [ch for ch in raw.ch_names if ch not in manual_bad_channels]
+        raw_for_analysis = raw.copy().pick(good_channels)
+    else:
+        raw_for_analysis = raw
     
-    # Fit to data length
-    npts_data = raw.n_times
-    if len(hypno_up) < npts_data:
-        hypno_up = np.pad(hypno_up, (0, npts_data - len(hypno_up)), mode='edge')
-    elif len(hypno_up) > npts_data:
-        hypno_up = hypno_up[:npts_data]
+    print(f"Extracting hypnogram from annotations...")
+    hypno_up = extract_hypno_from_annotations(raw_for_analysis)
     
-    print(f"Computing sigma power ({sigma_band[0]}-{sigma_band[1]} Hz) for {len(raw.ch_names)} channels...")
-    channel_stats = compute_sigma_power_stats(raw, hypno_up, sigma_band)
+    print(f"Computing sigma power ({sigma_band[0]}-{sigma_band[1]} Hz) for {len(raw_for_analysis.ch_names)} channels...")
+    channel_stats = compute_sigma_power_stats(raw_for_analysis, hypno_up, sigma_band)
     
     # Extract values for plotting (convert to µV if needed - data should already be in µV)
     n2_powers = [stats['n2_power'] for stats in channel_stats.values()]
@@ -348,7 +398,6 @@ def reference_and_interpolate(raw, subject_dir, subject_id, output_suffix=None):
     
     if len(existing_bad_channels) == 0:
         print(f"\n✓ No bad channels to interpolate!")
-        print(f"Applying average reference only...")
     
     raw.info['bads'] = existing_bad_channels
     
@@ -385,11 +434,10 @@ def set_annotations(raw, sub, sub_dir):
 
 def main():
     """Main function to run PSD analysis for all subjects."""
-    DATA_DIR = Path(BASE_DIR) / "control_clean"
-    HYPNO_DIR = Path(BASE_DIR) / "HC_hypno"
+    DATA_DIR = Path(BASE_DIR) / "MCI_clean" / "a_the_rest"
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_dir = Path("young_control/logs")
+    log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True, parents=True)
     log_file = log_dir / f"step2_auto_bad_channels_{timestamp}.txt"
     tee = TeeOutput(log_file)
@@ -400,7 +448,6 @@ def main():
         
         for sub in subjects:
             sub_dir = DATA_DIR / sub
-            hypno_path = f"{HYPNO_DIR}/{sub}.txt"
             try:
                 print("=" * 80)
                 print(f"Processing subject: {sub}")
@@ -411,7 +458,15 @@ def main():
                 raw.load_data()
                 set_annotations(raw, sub, sub_dir)
                 
-                _, n2_outliers = analyze_sigma_power(sub, raw, hypno_path, output_dir="young_control/sigma_boxplot/")
+                # Load manually marked bad channels
+                bad_channels_file = sub_dir / f"{sub}_bad_channels.txt"
+                manual_bad_channels = set()
+                if bad_channels_file.exists():
+                    with open(bad_channels_file, 'r') as f:
+                        manual_bad_channels = set(line.strip() for line in f if line.strip())
+                    print(f"Loaded {len(manual_bad_channels)} manually marked bad channels")
+
+                _, n2_outliers = analyze_sigma_power(sub, raw, output_dir="results/new_MCI_results/sigma_boxplot/", manual_bad_channels=manual_bad_channels)
                 with open(f"{sub_dir}/n2_outliers.txt", 'w') as f:
                     for channel in n2_outliers:
                         f.write(f"{channel}\n")
@@ -431,7 +486,7 @@ def main():
         # Restore stdout and close log file
         sys.stdout = tee.terminal
         tee.close()
-        print(f"\n✓ Log saved to: {log_file}")
+        print(f"\nLog saved to: {log_file}")
 
 if __name__ == "__main__":
     main()

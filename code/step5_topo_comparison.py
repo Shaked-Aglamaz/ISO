@@ -2,25 +2,29 @@ import os
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from contextlib import redirect_stdout
 import matplotlib.pyplot as plt
 import mne
 from mne.channels import find_ch_adjacency
 from mne.stats import spatio_temporal_cluster_test
+from scipy.stats import f_oneway, f as f_dist
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
-from utils.config import BASE_DIR
+from utils.config import BASE_DIR, CENTRAL_PARIETAL_ROI, EXTENDED_CENTRAL_PARIETAL_ROI
 from utils.utils import get_all_subjects
 
 import sys
 sys.path.append(str(Path(__file__).parent))
 from step4_distribution_analysis import (
-    load_subject_data, 
-    filter_subjects_by_detection_rate, 
+    load_subject_data,
+    filter_subjects_by_detection_rate,
     create_electrode_montage,
     load_and_combine_subject_data,
     filter_eeg_channels,
     setup_electrode_info,
     extract_channel_values,
-    plot_single_topography
+    plot_single_topography,
+    normalize_subject_channels
 )
 
 
@@ -60,43 +64,14 @@ def create_evoked_array_for_subject(subject_data, metric, montage, available_cha
     
     # Extract metric values
     values = subject_data_filtered[metric].values
-    
-    # Check for missing data
-    if np.any(np.isnan(values)):
-        n_missing = np.sum(np.isnan(values))
-        # Replace NaN with channel mean (simple imputation)
-        channel_mean = np.nanmean(values)
-        values = np.where(np.isnan(values), channel_mean, values)
-    
-    # Optional normalization (divide by subject mean to preserve spatial pattern)
-    # Match step4's approach: detect outliers, compute mean without outliers, but normalize ALL values
+
+    # NaN imputation + optional per-subject normalization (shared with step4)
     if normalize:
-        mean_val = np.mean(values)
-        std_val = np.std(values)
-        
-        if std_val > 0:
-            # Detect outliers (like step4)
-            outlier_mask = np.abs(values - mean_val) > 3 * std_val
-            
-            # Compute mean excluding outliers
-            if np.any(outlier_mask):
-                cleaned_values = values.copy()
-                cleaned_values[outlier_mask] = np.nan
-                clean_mean = np.nanmean(cleaned_values)
-            else:
-                clean_mean = mean_val
-            
-            # Normalize ALL values by the cleaned mean (don't set outliers to NaN)
-            if clean_mean > 0:
-                values = values / clean_mean
-            else:
-                print(f"  ⚠ {subject_id}: Cannot normalize {metric} (cleaned mean=0)")
-        else:
-            # If std=0, all values are the same, just divide by mean
-            if mean_val > 0:
-                values = values / mean_val
-            else:
-                print(f"  ⚠ {subject_id}: Cannot normalize {metric} (mean=0)")
+        values = normalize_subject_channels(values)
+    else:
+        # Still need to impute NaN for EvokedArray (can't have NaN)
+        if np.any(np.isnan(values)):
+            values = np.where(np.isnan(values), np.nanmean(values), values)
     
     # Create info object
     info = mne.create_info(ch_names=available_channels, sfreq=250, ch_types='eeg')
@@ -514,32 +489,38 @@ def run_statistical_comparison(group1_evoked, group2_evoked, adjacency,
 # STEP 3: VISUALIZATION (DIFFERENCE MAPS WITH CLUSTER HIGHLIGHTING)
 # =============================================================================
 
-def compute_group_mean_topography(evoked_list):
+def compute_group_topography(evoked_list, agg='mean'):
     """
-    Compute mean topography across subjects in a group.
-    
+    Compute group topography across subjects (mean or median).
+
     Parameters:
     -----------
     evoked_list : list
         List of mne.EvokedArray objects
-    
+    agg : {'mean', 'median'}
+        Aggregation across the subject dimension.
+
     Returns:
     --------
-    mean_data : np.ndarray
-        Mean values across subjects (n_channels,)
+    group_data : np.ndarray
+        Per-channel aggregated values across subjects (n_channels,)
     info : mne.Info
         Info object from first subject
     """
     # Stack all subjects' data (n_subjects, n_channels, n_times)
     all_data = np.array([evoked.data for evoked in evoked_list])
-    
-    # Compute mean across subjects and squeeze time dimension
-    mean_data = np.mean(all_data, axis=0).squeeze()  # (n_channels,)
-    
-    # Get info from first subject
+
+    if agg == 'median':
+        group_data = np.nanmedian(all_data, axis=0).squeeze()
+    else:
+        group_data = np.nanmean(all_data, axis=0).squeeze()
+
     info = evoked_list[0].info
-    
-    return mean_data, info
+    return group_data, info
+
+
+# Backwards-compatible alias (other call sites still use the mean-only name)
+compute_group_mean_topography = compute_group_topography
 
 
 def plot_topography_with_clusters(data, info, ax, title, sig_channels=None, 
@@ -956,6 +937,687 @@ def create_multi_metric_comparison_figure(results_dict, output_dir,
     print(f"{'='*80}\n")
 
 
+# =============================================================================
+# THREE-GROUP TOPOGRAPHIC COMPARISON (ANOVA + CLUSTER PERMUTATION + POST-HOC)
+# =============================================================================
+
+def prepare_three_group_data(young_subjects, elderly_subjects, mci_subjects,
+                             metric, young_dir, elderly_dir, mci_dir,
+                             normalize=True, min_detection_rate=0.2):
+    """
+    Load and prepare normalized EvokedArray data for all 3 groups.
+
+    Returns:
+    --------
+    group_evokeds_list : list of 3 lists of EvokedArray
+    group_names : list of str
+    adjacency : sparse matrix
+    available_channels : list of str
+    filtered_subjects : dict {group_name: [subject_ids]}
+    """
+    group_names = ['Young', 'Elderly', 'MCI']
+    all_subjects = [young_subjects, elderly_subjects, mci_subjects]
+    all_dirs = [young_dir, elderly_dir, mci_dir]
+
+    group_evokeds_list = []
+    filtered_subjects = {}
+
+    for name, subjects, dir_path in zip(group_names, all_subjects, all_dirs):
+        print(f"\n{name.upper()} GROUP:")
+        filt, _ = filter_subjects_by_detection_rate(subjects, min_detection_rate, dir_path)
+        filtered_subjects[name] = filt
+
+        data = load_all_subjects_data(filt, dir_path)
+        evoked_list, _, available_channels = prepare_evoked_arrays_for_group(
+            data, metric, normalize
+        )
+        group_evokeds_list.append(evoked_list)
+
+    adjacency, _ = compute_adjacency_matrix(group_evokeds_list[0])
+
+    print(f"\nDATA PREPARATION COMPLETE")
+    for name, evoked_list in zip(group_names, group_evokeds_list):
+        print(f"  {name}: N={len(evoked_list)}")
+    print(f"  Channels: {len(available_channels)}")
+    print(f"  Metric: {metric}, Normalized: {normalize}")
+
+    return group_evokeds_list, group_names, adjacency, available_channels, filtered_subjects
+
+
+def electrode_wise_anova(group_evokeds_list, group_names, available_channels):
+    """
+    Run one-way ANOVA at each electrode across 3 groups (uncorrected).
+
+    Returns:
+    --------
+    F_values : np.ndarray (n_channels,)
+    p_values : np.ndarray (n_channels,)
+    """
+    # Extract data: list of (n_subjects, n_channels) arrays
+    group_arrays = []
+    for evoked_list in group_evokeds_list:
+        arr = np.array([ev.data.squeeze() for ev in evoked_list])  # (n_subjects, n_channels)
+        group_arrays.append(arr)
+
+    n_channels = group_arrays[0].shape[1]
+    F_values = np.zeros(n_channels)
+    p_values = np.ones(n_channels)
+
+    for ch in range(n_channels):
+        samples = [arr[:, ch] for arr in group_arrays]
+        F_values[ch], p_values[ch] = f_oneway(*samples)
+
+    n_sig = np.sum(p_values < 0.05)
+    print(f"\nELECTRODE-WISE ANOVA (uncorrected)")
+    print(f"  Electrodes with p < 0.05: {n_sig}/{n_channels}")
+    print(f"  Min p-value: {np.min(p_values):.6f} (electrode {available_channels[np.argmin(p_values)]})")
+    print(f"  Max F-value: {np.max(F_values):.4f}")
+
+    return F_values, p_values
+
+
+def cluster_permutation_anova(group_evokeds_list, adjacency,
+                              n_permutations=5000, threshold_p=0.05, n_jobs=-1):
+    """
+    Run cluster-based permutation test with F-statistic for 3-group comparison.
+
+    Returns:
+    --------
+    F_obs, clusters, cluster_pv, H0
+    """
+    # Build data arrays: each (n_subjects, 1, n_channels)
+    X_list = []
+    for evoked_list in group_evokeds_list:
+        X = np.array([ev.data.T for ev in evoked_list])  # (n_subjects, 1, n_channels)
+        X_list.append(X)
+
+    # F-critical threshold for cluster formation
+    n_groups = len(X_list)
+    n_total = sum(X.shape[0] for X in X_list)
+    dfn = n_groups - 1
+    dfd = n_total - n_groups
+    f_threshold = f_dist.ppf(1 - threshold_p, dfn, dfd)
+
+    print(f"\nCLUSTER-BASED PERMUTATION TEST (F-test, {n_groups} groups)")
+    print(f"  N total: {n_total} (dfn={dfn}, dfd={dfd})")
+    print(f"  F threshold: {f_threshold:.3f} (p={threshold_p})")
+    print(f"  Permutations: {n_permutations}")
+    print(f"  Running...")
+
+    F_obs, clusters, cluster_pv, H0 = spatio_temporal_cluster_test(
+        X_list,
+        adjacency=adjacency,
+        n_permutations=n_permutations,
+        threshold=f_threshold,
+        tail=1,  # F-test is one-tailed
+        n_jobs=n_jobs,
+        buffer_size=None,
+        out_type='mask'
+    )
+
+    print(f"  Done! Total clusters: {len(clusters)}")
+    return F_obs, clusters, cluster_pv, H0
+
+
+def extract_significant_clusters_f(F_obs, clusters, cluster_pv, available_channels, alpha=0.05):
+    """
+    Extract significant clusters from F-test permutation results.
+
+    Returns:
+    --------
+    sig_clusters : list of dicts with 'channels', 'p_value', etc.
+    sig_channel_indices : np.ndarray of all unique significant channel indices
+    """
+    print(f"\nCLUSTER RESULTS (alpha={alpha})")
+    print(f"  Total clusters: {len(clusters)}")
+
+    sig_idx = np.where(cluster_pv < alpha)[0]
+
+    if len(sig_idx) == 0:
+        print(f"  No significant clusters found")
+        return [], np.array([], dtype=int)
+
+    print(f"  Significant clusters: {len(sig_idx)}")
+
+    sig_clusters = []
+    all_sig_channels = set()
+
+    for i in sig_idx:
+        mask = clusters[i]
+        if isinstance(mask, tuple):
+            mask = mask[0]
+        channels = np.where(mask.any(axis=0))[0]
+        f_vals = F_obs.squeeze()[channels]
+        p_val = cluster_pv[i]
+
+        sig_clusters.append({
+            'index': i,
+            'p_value': p_val,
+            'channels': channels,
+            'n_channels': len(channels),
+            'mean_F': np.mean(f_vals),
+            'max_F': np.max(f_vals),
+        })
+        all_sig_channels.update(channels)
+
+        ch_names = [available_channels[c] for c in channels[:10]]
+        print(f"\n  Cluster {i+1}: p={p_val:.6f}, {len(channels)} electrodes, "
+              f"mean F={np.mean(f_vals):.3f}, max F={np.max(f_vals):.3f}")
+        print(f"    Electrodes: {ch_names}{'...' if len(channels) > 10 else ''}")
+
+    return sig_clusters, np.array(sorted(all_sig_channels), dtype=int)
+
+
+def posthoc_tukey_at_clusters(group_evokeds_list, group_names, sig_channel_indices,
+                              available_channels, alpha=0.05):
+    """
+    Run Tukey-Kramer post-hoc at each electrode in significant clusters.
+
+    Returns:
+    --------
+    posthoc_results : dict {(g1, g2): np.ndarray of significant channel indices}
+    """
+    if len(sig_channel_indices) == 0:
+        return {(group_names[i], group_names[j]): np.array([], dtype=int)
+                for i in range(len(group_names)) for j in range(i+1, len(group_names))}
+
+    # Extract data arrays
+    group_arrays = []
+    for evoked_list in group_evokeds_list:
+        arr = np.array([ev.data.squeeze() for ev in evoked_list])
+        group_arrays.append(arr)
+
+    # Initialize results for each pair
+    pairs = [(group_names[i], group_names[j])
+             for i in range(len(group_names)) for j in range(i+1, len(group_names))]
+    pair_sig_channels = {pair: [] for pair in pairs}
+
+    print(f"\nPOST-HOC TUKEY-KRAMER AT CLUSTER ELECTRODES")
+    print(f"  Testing {len(sig_channel_indices)} electrodes across {len(pairs)} pairs")
+
+    for ch_idx in sig_channel_indices:
+        # Build combined values + labels
+        all_vals = []
+        all_labels = []
+        for g_idx, name in enumerate(group_names):
+            vals = group_arrays[g_idx][:, ch_idx]
+            all_vals.extend(vals)
+            all_labels.extend([name] * len(vals))
+
+        tukey = pairwise_tukeyhsd(np.array(all_vals), np.array(all_labels), alpha=alpha)
+
+        # Extract which pairs reject H0
+        for k in range(len(tukey.reject)):
+            if tukey.reject[k]:
+                g1 = str(tukey.groupsunique[tukey._multicomp.pairindices[0][k]])
+                g2 = str(tukey.groupsunique[tukey._multicomp.pairindices[1][k]])
+                pair = (g1, g2) if (g1, g2) in pair_sig_channels else (g2, g1)
+                if pair in pair_sig_channels:
+                    pair_sig_channels[pair].append(ch_idx)
+
+    # Convert to arrays and print summary
+    for pair in pairs:
+        pair_sig_channels[pair] = np.array(sorted(set(pair_sig_channels[pair])), dtype=int)
+        n = len(pair_sig_channels[pair])
+        print(f"  {pair[0]} vs {pair[1]}: {n} significant electrodes")
+        if n > 0 and n <= 15:
+            ch_names = [available_channels[c] for c in pair_sig_channels[pair]]
+            print(f"    Electrodes: {ch_names}")
+
+    return pair_sig_channels
+
+
+def plot_three_group_topos(group_evokeds_list, group_names, metric, info,
+                           posthoc_results, F_obs, sig_channel_indices,
+                           output_dir, clusters=None, cluster_pv=None,
+                           agg='mean', show_roi=True):
+    """
+    Plot normalized grand-average topographies for all 3 groups.
+    Overlay black circles on electrodes with significant post-hoc differences.
+    Also plot F-statistic topography.
+
+    ``agg`` controls subject-dimension aggregation of the DISPLAYED topography
+    ('mean' or 'median'). Statistics (ANOVA / cluster / post-hoc) are
+    mean-based and unaffected.
+
+    ``show_roi`` (AUC only) toggles the green ROI overlay. When False, the
+    file is saved with a ``_no_roi`` suffix and the F-stat figure is skipped
+    to avoid duplicating it.
+    """
+    metric_info = {
+        'peak_frequency': {'name': 'Peak Frequency', 'unit': 'Hz'},
+        'bandwidth': {'name': 'Bandwidth', 'unit': 'Hz'},
+        'auc': {'name': 'Area Under Curve', 'unit': 'AU'}
+    }.get(metric, {'name': metric, 'unit': 'AU'})
+
+    # Compute grand averages per group
+    group_means = []
+    for evoked_list in group_evokeds_list:
+        mean_data, _ = compute_group_topography(evoked_list, agg=agg)
+        group_means.append(mean_data)
+
+    # Common color scale across groups
+    vmin = min(np.nanmin(m) for m in group_means)
+    vmax = max(np.nanmax(m) for m in group_means)
+
+    # Build per-group mask: union of all post-hoc pairs involving that group
+    group_masks = {}
+    for g_idx, name in enumerate(group_names):
+        mask = np.zeros(len(group_means[0]), dtype=bool)
+        for (g1, g2), channels in posthoc_results.items():
+            if name in (g1, g2) and len(channels) > 0:
+                mask[channels] = True
+        group_masks[name] = mask
+
+    # --- Figure 1: 3 group topos ---
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    is_auc = metric == 'auc'
+    draw_roi = is_auc and show_roi
+    roi_subtitle = ' | Green dots = ROI' if draw_roi else ''
+    agg_tag = f' [{agg}]' if agg != 'mean' else ''
+    fig.suptitle(f'Normalized Topographies: {metric_info["name"]}{agg_tag}\n'
+                 f'(Black circles = significant post-hoc difference){roi_subtitle}',
+                 fontsize=14, fontweight='bold')
+
+    n_channels = len(group_means[0])
+    for g_idx, name in enumerate(group_names):
+        ax = axes[g_idx]
+        data = group_means[g_idx]
+        mask = group_masks[name] if np.any(group_masks[name]) else None
+
+        mask_params = dict(marker='o', markerfacecolor='none', markeredgecolor='black',
+                           linewidth=0, markersize=10, markeredgewidth=2) if mask is not None else None
+
+        im, _ = mne.viz.plot_topomap(
+            data, info, axes=ax, show=False,
+            cmap='RdBu_r', vlim=(vmin, vmax), contours=6,
+            mask=mask, mask_params=mask_params
+        )
+
+        if draw_roi:
+            _overlay_roi_markers(ax, info, n_channels)
+
+        n_subjects = len(group_evokeds_list[g_idx])
+        ax.set_title(f'{name}\n(N={n_subjects})', fontsize=12, fontweight='bold')
+
+        cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label('Normalized', fontsize=9)
+
+    # Add post-hoc legend text
+    legend_lines = []
+    for (g1, g2), channels in posthoc_results.items():
+        if len(channels) > 0:
+            legend_lines.append(f'{g1} vs {g2}: {len(channels)} electrodes')
+    if legend_lines:
+        fig.text(0.5, 0.01, 'Significant pairs: ' + ' | '.join(legend_lines),
+                 ha='center', fontsize=10, style='italic')
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.93])
+    output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True, parents=True)
+    suffix_parts = []
+    if agg != 'mean':
+        suffix_parts.append(agg)
+    if is_auc and not show_roi:
+        suffix_parts.append('no_roi')
+    suffix = ('_' + '_'.join(suffix_parts)) if suffix_parts else ''
+    fig_path = output_dir / f'three_group_topo_{metric}{suffix}.png'
+    plt.savefig(fig_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"  Saved: {fig_path}")
+
+    # F-statistic figure is mean-based and ROI-independent; only emit it once
+    # (on the default mean + show_roi pass) to avoid duplicates.
+    if agg != 'mean' or not show_roi:
+        return
+
+    # --- Figure 2: F-statistic topography with all clusters ---
+    f_values = F_obs.squeeze()
+
+    # Collect all clusters (before permutation significance) for visualization
+    all_cluster_channels = []
+    if clusters is not None:
+        for i, cl in enumerate(clusters):
+            mask_cl = cl
+            if isinstance(mask_cl, tuple):
+                mask_cl = mask_cl[0]
+            ch_idx = np.where(mask_cl.any(axis=0))[0]
+            p_val = cluster_pv[i] if cluster_pv is not None else 1.0
+            all_cluster_channels.append((ch_idx, p_val))
+
+    n_clusters = len(all_cluster_channels)
+    sig_count = sum(1 for _, p in all_cluster_channels if p < 0.05)
+
+    fig2, ax2 = plt.subplots(1, 1, figsize=(8, 7))
+
+    # Plot F-statistic topography with RdBu_r colormap
+    im_f, _ = mne.viz.plot_topomap(
+        f_values, info, axes=ax2, show=False,
+        cmap='RdBu_r', contours=6
+    )
+
+    cbar_f = plt.colorbar(im_f, ax=ax2, fraction=0.046, pad=0.04)
+    cbar_f.set_label('F-statistic', fontsize=11)
+
+    # Overlay all clusters as enclosing circles
+    if n_clusters > 0:
+        from matplotlib.patches import Circle
+        from scipy.spatial.distance import cdist
+        # Extract plotted 2D positions from the topomap axes (same coordinates MNE used)
+        # The first PathCollection in the axes contains the sensor dots
+        pos = None
+        for child in ax2.get_children():
+            if isinstance(child, plt.matplotlib.collections.PathCollection):
+                offsets = child.get_offsets()
+                if len(offsets) == len(f_values):
+                    pos = offsets.copy()
+                    break
+        if pos is None:
+            # Fallback: project raw 3D positions to 2D the way MNE does
+            from mne.viz.topomap import _find_topomap_coords
+            pos = _find_topomap_coords(info, picks=range(len(info['chs'])))
+
+        # Padding: half the nearest-neighbor distance
+        nn_dists = np.sort(cdist(pos, pos), axis=1)[:, 1]  # nearest neighbor per electrode
+        pad = np.median(nn_dists) * 0.5
+
+        cluster_cmap = plt.cm.tab10
+        for cl_idx, (ch_idx, p_val) in enumerate(all_cluster_channels):
+            if len(ch_idx) == 0:
+                continue
+            color = cluster_cmap(cl_idx % 10)
+            lw = 2.5 if p_val < 0.05 else 1.5
+            cluster_pos = pos[ch_idx]
+            centroid = cluster_pos.mean(axis=0)
+            radius = np.max(np.linalg.norm(cluster_pos - centroid, axis=1)) + pad
+            circle = Circle(centroid, radius, facecolor='none', edgecolor=color,
+                           linewidth=lw, zorder=5)
+            ax2.add_patch(circle)
+
+    title = f'F-statistic Topography: {metric_info["name"]}\nOne-Way ANOVA across 3 groups'
+    title += f'\n{n_clusters} clusters found ({sig_count} significant after permutation)'
+    ax2.set_title(title, fontsize=12, fontweight='bold')
+
+    # Add legend for clusters
+    if n_clusters > 0:
+        from matplotlib.patches import Patch
+        legend_handles = []
+        for cl_idx, (ch_idx, p_val) in enumerate(all_cluster_channels):
+            if len(ch_idx) == 0:
+                continue
+            color = cluster_cmap(cl_idx % 10)
+            sig_label = " *" if p_val < 0.05 else ""
+            legend_handles.append(
+                Patch(facecolor='none', edgecolor=color,
+                      linewidth=2.5 if p_val < 0.05 else 1.5,
+                      label=f'Cluster {cl_idx+1}: {len(ch_idx)} ch, p={p_val:.3f}{sig_label}')
+            )
+        if legend_handles:
+            ax2.legend(handles=legend_handles, loc='lower center',
+                      bbox_to_anchor=(0.5, -0.15), ncol=min(3, len(legend_handles)),
+                      fontsize=8, frameon=True)
+
+    plt.tight_layout()
+    fig_path_f = output_dir / f'three_group_fstat_topo_{metric}.png'
+    plt.savefig(fig_path_f, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"  Saved: {fig_path_f}")
+
+
+def _overlay_roi_markers(ax, info, n_channels):
+    """Overlay ROI (filled green dots) on a topomap axis.
+
+    Uses the extended central-parietal ROI as the single displayed ROI.
+    The core / extended lists are kept separate in config so we can fall
+    back to distinguishing them, but visually they are treated as one ROI.
+    """
+    ch_names = [info['chs'][i]['ch_name'] for i in range(len(info['chs']))]
+    roi_set = set(EXTENDED_CENTRAL_PARIETAL_ROI)
+    roi_idx = [i for i, ch in enumerate(ch_names) if ch in roi_set]
+
+    from mne.channels.layout import _find_topomap_coords
+    pos = _find_topomap_coords(info, picks=range(len(info['chs'])))
+
+    if roi_idx:
+        ax.scatter(pos[roi_idx, 0], pos[roi_idx, 1],
+                   s=28, c='#00aa00', marker='o',
+                   edgecolors='black', linewidths=0.6, zorder=4)
+
+
+def _draw_roi_ellipse(ax, info, roi_channels, n_channels):
+    """Draw a covariance-fitted ellipse around ROI electrodes on a topomap axis."""
+    from matplotlib.patches import Ellipse
+    from scipy.spatial.distance import cdist
+
+    # Find ROI channel indices in the info object
+    ch_names = [info['chs'][i]['ch_name'] for i in range(len(info['chs']))]
+    roi_idx = [i for i, ch in enumerate(ch_names) if ch in roi_channels]
+    if len(roi_idx) == 0:
+        return
+
+    # Extract 2D positions from the topomap axes (same coordinates MNE used)
+    pos = None
+    for child in ax.get_children():
+        if isinstance(child, plt.matplotlib.collections.PathCollection):
+            offsets = child.get_offsets()
+            if len(offsets) == n_channels:
+                pos = offsets.copy()
+                break
+    if pos is None:
+        from mne.viz.topomap import _find_topomap_coords
+        pos = _find_topomap_coords(info, picks=range(len(info['chs'])))
+
+    roi_pos = pos[roi_idx]
+    centroid = roi_pos.mean(axis=0)
+
+    # Fit ellipse via covariance matrix
+    cov = np.cov(roi_pos, rowvar=False)
+    eigenvalues, eigenvectors = np.linalg.eigh(cov)
+
+    # Sort by largest eigenvalue
+    order = eigenvalues.argsort()[::-1]
+    eigenvalues = eigenvalues[order]
+    eigenvectors = eigenvectors[:, order]
+
+    # Padding: half the median nearest-neighbor distance
+    nn_dists = np.sort(cdist(pos, pos), axis=1)[:, 1]
+    pad = np.median(nn_dists) * 0.6
+
+    # Ellipse axes: ~2.5 std covers the outermost electrodes, plus padding
+    scale = 2.5
+    width = 2 * (np.sqrt(eigenvalues[0]) * scale + pad)
+    height = 2 * (np.sqrt(eigenvalues[1]) * scale + pad)
+
+    # Rotation angle from first eigenvector
+    angle = np.degrees(np.arctan2(eigenvectors[1, 0], eigenvectors[0, 0]))
+
+    ellipse = Ellipse(centroid, width, height, angle=angle,
+                      facecolor='none', edgecolor='black',
+                      linewidth=2.5, linestyle='--', zorder=5)
+    ax.add_patch(ellipse)
+
+
+def plot_three_group_topos_roi(group_evokeds_list, group_names, info, output_dir):
+    """
+    Plot normalized grand-average AUC topographies for all 3 groups
+    with the central-parietal ROI highlighted as a dashed circle.
+    """
+    metric_info = {'name': 'Area Under Curve', 'unit': 'AU'}
+
+    # Compute grand averages per group
+    group_means = []
+    for evoked_list in group_evokeds_list:
+        mean_data, _ = compute_group_mean_topography(evoked_list)
+        group_means.append(mean_data)
+
+    # Common color scale across groups
+    vmin = min(np.nanmin(m) for m in group_means)
+    vmax = max(np.nanmax(m) for m in group_means)
+
+    n_channels = len(group_means[0])
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    fig.suptitle(f'Normalized Topographies: {metric_info["name"]} (ROI)\n'
+                 f'(Dashed ellipse = central-parietal ROI)',
+                 fontsize=14, fontweight='bold')
+
+    for g_idx, name in enumerate(group_names):
+        ax = axes[g_idx]
+        data = group_means[g_idx]
+
+        im, _ = mne.viz.plot_topomap(
+            data, info, axes=ax, show=False,
+            cmap='RdBu_r', vlim=(vmin, vmax), contours=6,
+        )
+
+        n_subjects = len(group_evokeds_list[g_idx])
+        ax.set_title(f'{name}\n(N={n_subjects})', fontsize=12, fontweight='bold')
+
+        cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label('Normalized', fontsize=9)
+
+        # Draw ROI ellipse
+        _draw_roi_ellipse(ax, info, set(CENTRAL_PARIETAL_ROI), n_channels)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.93])
+    output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True, parents=True)
+    fig_path = output_dir / 'three_group_topo_auc_ROI.png'
+    plt.savefig(fig_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"  Saved: {fig_path}")
+
+
+def main_three_group():
+    """Run 3-group topographic comparison: electrode-wise ANOVA + cluster permutation + post-hoc."""
+    # Load subjects
+    young_subjects = get_all_subjects(f"{BASE_DIR}/control_clean/")
+    young_dir = Path("results/new_iso_results")
+    young_subjects = [s for s in young_subjects if (young_dir / s).exists() and s != "dashboards"]
+
+    elderly_subjects = get_all_subjects(f"{BASE_DIR}/elderly_control_clean/")
+    elderly_dir = Path("results/new_elderly_results")
+    elderly_subjects = [s for s in elderly_subjects if (elderly_dir / s).exists() and s != "dashboards"]
+
+    mci_subjects = get_all_subjects(f"{BASE_DIR}/MCI_clean/")
+    mci_dir = Path("results/new_MCI_results")
+    mci_subjects = [s for s in mci_subjects if (mci_dir / s).exists() and s != "dashboards"]
+
+    output_dir = Path("results/group_comparison_results/three_groups_V3")
+    output_dir.mkdir(exist_ok=True, parents=True)
+
+    metrics = ['peak_frequency', 'bandwidth', 'auc']
+    report_path = output_dir / "three_group_topo_statistics.txt"
+
+    print(f"Running 3-group topographic comparison...")
+    print(f"  Young: {len(young_subjects)}, Elderly: {len(elderly_subjects)}, MCI: {len(mci_subjects)}")
+    print(f"  Output: {output_dir}")
+
+    # Run analysis for all metrics, store results
+    all_results = {}
+
+    with open(report_path, 'w', encoding='utf-8') as f:
+        with redirect_stdout(f):
+            print("################################################################################")
+            print("  THREE-GROUP TOPOGRAPHIC COMPARISON")
+            print("################################################################################\n")
+
+            for metric in metrics:
+                print(f"\n{'#'*80}")
+                print(f"  METRIC: {metric.upper()}")
+                print(f"{'#'*80}\n")
+
+                # Step 1-4: Prepare normalized data
+                group_evokeds_list, group_names, adjacency, available_channels, filtered_subjects = \
+                    prepare_three_group_data(
+                        young_subjects, elderly_subjects, mci_subjects,
+                        metric, young_dir, elderly_dir, mci_dir,
+                        normalize=True
+                    )
+
+                # Step 5: Electrode-wise ANOVA (uncorrected, descriptive)
+                F_values, p_values = electrode_wise_anova(
+                    group_evokeds_list, group_names, available_channels
+                )
+
+                # Step 6: Cluster permutation test
+                F_obs, clusters, cluster_pv, H0 = cluster_permutation_anova(
+                    group_evokeds_list, adjacency,
+                    n_permutations=5000, threshold_p=0.05, n_jobs=-1
+                )
+
+                sig_clusters, sig_channel_indices = extract_significant_clusters_f(
+                    F_obs, clusters, cluster_pv, available_channels
+                )
+
+                # Step 7: Post-hoc Tukey at cluster electrodes
+                posthoc_results = posthoc_tukey_at_clusters(
+                    group_evokeds_list, group_names, sig_channel_indices, available_channels
+                )
+
+                # Print post-hoc summary
+                print(f"\n{'='*80}")
+                print(f"SUMMARY: {metric.upper()}")
+                print(f"{'='*80}")
+                print(f"  Significant clusters: {len(sig_clusters)}")
+                for pair, channels in posthoc_results.items():
+                    print(f"  {pair[0]} vs {pair[1]}: {len(channels)} significant electrodes")
+
+                # Store for plotting
+                all_results[metric] = {
+                    'group_evokeds_list': group_evokeds_list,
+                    'group_names': group_names,
+                    'F_obs': F_obs,
+                    'sig_channel_indices': sig_channel_indices,
+                    'posthoc_results': posthoc_results,
+                    'clusters': clusters,
+                    'cluster_pv': cluster_pv,
+                }
+
+            print(f"\n{'#'*80}")
+            print(f"  ANALYSIS COMPLETE")
+            print(f"{'#'*80}")
+
+    print(f"Statistics report saved to: {report_path}")
+
+    # Plot using stored results (no recomputation).
+    # Render both mean and median group topographies; stats are mean-based either way.
+    for metric in metrics:
+        r = all_results[metric]
+        info = r['group_evokeds_list'][0][0].info
+        for agg in ('mean', 'median'):
+            print(f"\nPlotting {metric} ({agg})...")
+            plot_three_group_topos(
+                r['group_evokeds_list'], r['group_names'], metric, info,
+                r['posthoc_results'], r['F_obs'], r['sig_channel_indices'], output_dir,
+                clusters=r['clusters'], cluster_pv=r['cluster_pv'],
+                agg=agg,
+            )
+
+    # Extra AUC mean topo without the ROI overlay (keeps sig dots + color scale).
+    if 'auc' in all_results:
+        r = all_results['auc']
+        info = r['group_evokeds_list'][0][0].info
+        print(f"\nPlotting auc (mean, no ROI)...")
+        plot_three_group_topos(
+            r['group_evokeds_list'], r['group_names'], 'auc', info,
+            r['posthoc_results'], r['F_obs'], r['sig_channel_indices'], output_dir,
+            clusters=r['clusters'], cluster_pv=r['cluster_pv'],
+            agg='mean', show_roi=False,
+        )
+
+    # Plot AUC topo with ROI circle overlay (disabled for V2)
+    # if 'auc' in all_results:
+    #     print(f"\nPlotting AUC with ROI overlay...")
+    #     r = all_results['auc']
+    #     info = r['group_evokeds_list'][0][0].info
+    #     plot_three_group_topos_roi(
+    #         r['group_evokeds_list'], r['group_names'], info, output_dir
+    #     )
+
+    print(f"\nAll done! Results in {output_dir}")
+
+
 def main():
     """Run full pipeline for all three metrics: peak_frequency, bandwidth, and auc."""
     young_subjects = get_all_subjects(f"{BASE_DIR}/control_clean/")
@@ -1057,4 +1719,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main_three_group()
