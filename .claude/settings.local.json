@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(source I:/Shaked/ISO/eeg_clean/Scripts/activate && python -c \"import scikit_posthocs; print\\('scikit_posthocs OK'\\)\" 2>&1; python -c \"import statsmodels; print\\('statsmodels OK'\\)\" 2>&1)"
+    ]
+  }
+}

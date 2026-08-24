@@ -434,20 +434,27 @@ def set_annotations(raw, sub, sub_dir):
 
 def main():
     """Main function to run PSD analysis for all subjects."""
-    DATA_DIR = Path(BASE_DIR) / "MCI_clean" / "a_the_rest"
-    
+    # (subject_id, group folder under BASE_DIR)
+    subjects = [
+        ("MR5", "MCI_clean"),
+        ("DS6", "elderly_control_clean"),
+    ]
+    BOXPLOT_DIRS = {
+        "MCI_clean": "results/new_MCI_results/sigma_boxplot/",
+        "elderly_control_clean": "results/new_elderly_results/sigma_boxplot/",
+    }
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True, parents=True)
     log_file = log_dir / f"step2_auto_bad_channels_{timestamp}.txt"
     tee = TeeOutput(log_file)
     sys.stdout = tee
-    
+
     try:
-        subjects = get_all_subjects(DATA_DIR)
-        
-        for sub in subjects:
-            sub_dir = DATA_DIR / sub
+        for sub, group in subjects:
+            sub_dir = Path(BASE_DIR) / group / sub
+            SIGMA_BOXPLOT_DIR = BOXPLOT_DIRS[group]
             try:
                 print("=" * 80)
                 print(f"Processing subject: {sub}")
@@ -466,7 +473,7 @@ def main():
                         manual_bad_channels = set(line.strip() for line in f if line.strip())
                     print(f"Loaded {len(manual_bad_channels)} manually marked bad channels")
 
-                _, n2_outliers = analyze_sigma_power(sub, raw, output_dir="results/new_MCI_results/sigma_boxplot/", manual_bad_channels=manual_bad_channels)
+                _, n2_outliers = analyze_sigma_power(sub, raw, output_dir=SIGMA_BOXPLOT_DIR, manual_bad_channels=manual_bad_channels)
                 with open(f"{sub_dir}/n2_outliers.txt", 'w') as f:
                     for channel in n2_outliers:
                         f.write(f"{channel}\n")

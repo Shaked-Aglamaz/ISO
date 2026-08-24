@@ -23,7 +23,11 @@ def fit_gaussian(frequencies, power, plot_data):
     p0 = [np.nanmax(valid_power), 0.02, 0.01] 
     popt, _ = curve_fit(gaussian_func, valid_frequencies, valid_power, p0=p0)
     peak_power_fit, peak_freq_fit, sigma_fit = popt
-    
+    # The Gaussian depends on sigma only through sigma^2, so curve_fit may return a
+    # negative sigma that is mathematically identical to its positive twin. Take the
+    # magnitude so the downstream band (peak_freq +/- sigma) and AUC are sign-safe.
+    sigma_fit = abs(sigma_fit)
+
     # Generate fit curve on FULL frequency axis (will have values even where original had NaN)
     fit_curve = gaussian_func(frequencies, *popt)
     threshold = np.nanstd(power) * 1.5

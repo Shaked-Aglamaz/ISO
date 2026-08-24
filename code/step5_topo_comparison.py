@@ -4,14 +4,17 @@ import pandas as pd
 from pathlib import Path
 from contextlib import redirect_stdout
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import mne
 from mne.channels import find_ch_adjacency
 from mne.stats import spatio_temporal_cluster_test
 from scipy.stats import f_oneway, f as f_dist
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
-from utils.config import BASE_DIR, CENTRAL_PARIETAL_ROI, EXTENDED_CENTRAL_PARIETAL_ROI
+from utils.config import (BASE_DIR, CENTRAL_PARIETAL_ROI, EXTENDED_CENTRAL_PARIETAL_ROI,
+                          GROUP_COLORS_DARK, group_label)
 from utils.utils import get_all_subjects
+from utils.topo_aggregation import build_raw_group_topo
 
 import sys
 sys.path.append(str(Path(__file__).parent))
@@ -24,7 +27,10 @@ from step4_distribution_analysis import (
     setup_electrode_info,
     extract_channel_values,
     plot_single_topography,
-    normalize_subject_channels
+    normalize_subject_channels,
+    clip_topo_to_head,
+    TOPO_SPHERE,
+    TOPO_EXTRAPOLATE,
 )
 
 
@@ -574,14 +580,16 @@ def plot_topography_with_clusters(data, info, ax, title, sig_channels=None,
     # Plot the topography
     im, _ = mne.viz.plot_topomap(
         data, info, axes=ax, show=False,
-        cmap=cmap, vlim=(vmin, vmax), 
+        cmap=cmap, vlim=(vmin, vmax),
         contours=6,
         mask=mask,
-        mask_params=mask_params
+        mask_params=mask_params,
+        sphere=TOPO_SPHERE, extrapolate=TOPO_EXTRAPOLATE,
     )
-    
+    clip_topo_to_head(ax, info)
+
     ax.set_title(title, fontsize=11, fontweight='bold')
-    
+
     return im
 
 
@@ -784,10 +792,12 @@ def create_tstat_topography(T_obs, info, sig_clusters, metric, output_dir,
         t_values, info, axes=ax, show=False,
         cmap='RdBu_r',
         contours=8,
+        sphere=TOPO_SPHERE, extrapolate=TOPO_EXTRAPOLATE,
         mask=sig_channels_mask if len(sig_clusters) > 0 else None,
         mask_params=mask_params if len(sig_clusters) > 0 else None
     )
-    
+    clip_topo_to_head(ax, info)
+
     # Add colorbar
     cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cbar.set_label('t-statistic', rotation=270, labelpad=20, fontsize=11)
@@ -1167,12 +1177,91 @@ def posthoc_tukey_at_clusters(group_evokeds_list, group_names, sig_channel_indic
     return pair_sig_channels
 
 
+# Font sizes for the topography panels. These figures are pasted at page width
+# in the manuscript, so the on-canvas text has to be oversized to survive the
+# shrink.
+TOPO_FS_TITLE = 26
+TOPO_FS_CBAR_LABEL = 22
+TOPO_FS_CBAR_TICK = 20
+TOPO_FS_KEY = 18
+
+# Canvas size for the three-map rows. What decides on-page legibility is the
+# ratio of type size to figure WIDTH, not the nominal points: the old 18 in wide
+# canvas shrank about 3x at page width, so a 20 pt title landed at ~7 pt. At
+# 12 in the same title holds ~14 pt on the page.
+TOPO_FIGSIZE = (12, 5.0)
+
+# Spelled-out colorbar legends. The bare 'AU' / 'Normalized' labels did not say
+# which quantity the color scale encodes.
+_CBAR_LABELS = {
+    'peak_frequency': ('Peak frequency (Hz)', 'Normalized peak frequency'),
+    'bandwidth': ('Bandwidth (Hz)', 'Normalized bandwidth'),
+    'auc': ('ISFS strength (AUC, a.u.)', 'Normalized ISFS strength (AUC)'),
+}
+
+
+def _cbar_label(metric, normalize):
+    """Colorbar legend text for a metric, in raw or normalized units."""
+    raw, norm = _CBAR_LABELS.get(metric, (metric, f'Normalized {metric}'))
+    return norm if normalize else raw
+
+
+def plot_three_group_raw_topos(group_topos, group_displayed_means, group_names,
+                                group_n_subjects, info, metric, output_dir):
+    """Plot raw (non-normalized) three-group topographies — clean view.
+
+    Each topography is the across-subjects mean of neighbor-imputed per-subject
+    topographies (constructed by ``utils.topo_aggregation.build_raw_group_topo``).
+    Each subplot title shows ``mean=<value>`` from that group's mean-of-subject-means
+    (matches step6 violin), supplied via ``group_displayed_means`` — NOT
+    ``np.nanmean`` of the imputed topo.
+    """
+    metric_info = {
+        'peak_frequency': {'name': 'Peak Frequency', 'unit': 'Hz'},
+        'bandwidth': {'name': 'Bandwidth', 'unit': 'Hz'},
+        'auc': {'name': 'Area Under Curve', 'unit': 'AU'}
+    }.get(metric, {'name': metric, 'unit': 'AU'})
+
+    vmin = min(np.nanmin(t) for t in group_topos)
+    vmax = max(np.nanmax(t) for t in group_topos)
+
+    fig, axes = plt.subplots(1, 3, figsize=TOPO_FIGSIZE, gridspec_kw={'wspace': 0.02})
+
+    im = None
+    for ax, topo, m, name, n in zip(axes, group_topos, group_displayed_means,
+                                    group_names, group_n_subjects):
+        im, _ = mne.viz.plot_topomap(
+            topo, info, axes=ax, show=False,
+            cmap='RdBu_r', vlim=(vmin, vmax), contours=6,
+            sphere=TOPO_SPHERE, extrapolate=TOPO_EXTRAPOLATE,
+        )
+        clip_topo_to_head(ax, info)
+        # Three lines, not one: at the paper canvas width a single
+        # "(N=35, mean=6.457)" line is wider than its column and runs into the
+        # neighbouring title.
+        ax.set_title(f'{group_label(name)}\n(N={n})\nmean = {m:.3f}', fontsize=TOPO_FS_TITLE,
+                     fontweight='bold', color=GROUP_COLORS_DARK.get(name, 'black'))
+
+    # Single shared colorbar on the right (all three maps use the same vlim).
+    cbar = fig.colorbar(im, ax=list(axes), fraction=0.022, pad=0.02)
+    cbar.set_label(_cbar_label(metric, normalize=False), fontsize=TOPO_FS_CBAR_LABEL)
+    cbar.ax.tick_params(labelsize=TOPO_FS_CBAR_TICK)
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True, parents=True)
+    fig_path = output_dir / f'three_group_topo_{metric}_raw.png'
+    plt.savefig(fig_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"  Saved: {fig_path}")
+
+
 def plot_three_group_topos(group_evokeds_list, group_names, metric, info,
                            posthoc_results, F_obs, sig_channel_indices,
                            output_dir, clusters=None, cluster_pv=None,
-                           agg='mean', show_roi=True):
+                           agg='mean', show_roi=True, normalize=True,
+                           fstat_fig=True):
     """
-    Plot normalized grand-average topographies for all 3 groups.
+    Plot grand-average topographies for all 3 groups.
     Overlay black circles on electrodes with significant post-hoc differences.
     Also plot F-statistic topography.
 
@@ -1183,6 +1272,15 @@ def plot_three_group_topos(group_evokeds_list, group_names, metric, info,
     ``show_roi`` (AUC only) toggles the green ROI overlay. When False, the
     file is saved with a ``_no_roi`` suffix and the F-stat figure is skipped
     to avoid duplicating it.
+
+    ``normalize`` is a cosmetic flag describing the values in the supplied
+    evokeds. When False (i.e. raw values): post-hoc circles, ROI overlay,
+    post-hoc legend, and the F-stat figure are skipped (clean view); the
+    title/colorbar use raw-unit wording; the filename gets a ``_raw`` suffix.
+
+    ``fstat_fig`` controls whether the second (F-statistic) figure is emitted.
+    Set it False when replotting from stored cluster results, where ``F_obs``
+    and ``clusters`` are not available.
     """
     metric_info = {
         'peak_frequency': {'name': 'Peak Frequency', 'unit': 'Hz'},
@@ -1201,65 +1299,80 @@ def plot_three_group_topos(group_evokeds_list, group_names, metric, info,
     vmax = max(np.nanmax(m) for m in group_means)
 
     # Build per-group mask: union of all post-hoc pairs involving that group
-    group_masks = {}
-    for g_idx, name in enumerate(group_names):
-        mask = np.zeros(len(group_means[0]), dtype=bool)
-        for (g1, g2), channels in posthoc_results.items():
-            if name in (g1, g2) and len(channels) > 0:
-                mask[channels] = True
-        group_masks[name] = mask
+    # (raw mode skips overlays — leave masks empty)
+    group_masks = {name: np.zeros(len(group_means[0]), dtype=bool) for name in group_names}
+    if normalize:
+        for g_idx, name in enumerate(group_names):
+            mask = np.zeros(len(group_means[0]), dtype=bool)
+            for (g1, g2), channels in posthoc_results.items():
+                if name in (g1, g2) and len(channels) > 0:
+                    mask[channels] = True
+            group_masks[name] = mask
 
     # --- Figure 1: 3 group topos ---
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    fig, axes = plt.subplots(1, 3, figsize=TOPO_FIGSIZE, gridspec_kw={'wspace': 0.02})
     is_auc = metric == 'auc'
-    draw_roi = is_auc and show_roi
-    roi_subtitle = ' | Green dots = ROI' if draw_roi else ''
-    agg_tag = f' [{agg}]' if agg != 'mean' else ''
-    fig.suptitle(f'Normalized Topographies: {metric_info["name"]}{agg_tag}\n'
-                 f'(Black circles = significant post-hoc difference){roi_subtitle}',
-                 fontsize=14, fontweight='bold')
-
+    draw_roi = is_auc and show_roi and normalize
     n_channels = len(group_means[0])
     for g_idx, name in enumerate(group_names):
         ax = axes[g_idx]
         data = group_means[g_idx]
         mask = group_masks[name] if np.any(group_masks[name]) else None
 
-        mask_params = dict(marker='o', markerfacecolor='none', markeredgecolor='black',
-                           linewidth=0, markersize=10, markeredgewidth=2) if mask is not None else None
+        mask_params = dict(marker='o', markerfacecolor='none', markeredgecolor='yellow',
+                           linewidth=0, markersize=10, markeredgewidth=2.5) if mask is not None else None
 
         im, _ = mne.viz.plot_topomap(
             data, info, axes=ax, show=False,
             cmap='RdBu_r', vlim=(vmin, vmax), contours=6,
-            mask=mask, mask_params=mask_params
+            mask=mask, mask_params=mask_params,
+            sphere=TOPO_SPHERE, extrapolate=TOPO_EXTRAPOLATE,
         )
+        clip_topo_to_head(ax, info)
 
         if draw_roi:
             _overlay_roi_markers(ax, info, n_channels)
 
         n_subjects = len(group_evokeds_list[g_idx])
-        ax.set_title(f'{name}\n(N={n_subjects})', fontsize=12, fontweight='bold')
+        # In raw mode, surface the across-channel mean of the group topo
+        # (skipped for normalized mode — averages ~1 by construction).
+        # Mean on its own line (see the note in plot_three_group_raw_topos).
+        mean_str = f'\nmean = {np.nanmean(data):.3f}' if not normalize else ''
+        ax.set_title(f'{group_label(name)}\n(N={n_subjects}){mean_str}', fontsize=TOPO_FS_TITLE,
+                     fontweight='bold', color=GROUP_COLORS_DARK.get(name, 'black'))
 
-        cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        cbar.set_label('Normalized', fontsize=9)
+    # Key for the electrode overlays, so the yellow rings and green ROI dots do
+    # not need the caption to be readable.
+    key_handles = []
+    if any(np.any(group_masks[name]) for name in group_names):
+        key_handles.append(Line2D([], [], linestyle='none', marker='o',
+                                  markerfacecolor='none', markeredgecolor='yellow',
+                                  markeredgewidth=2.5, markersize=12,
+                                  label='Significant post-hoc difference'))
+    if draw_roi:
+        key_handles.append(Line2D([], [], linestyle='none', marker='o',
+                                  markerfacecolor='#00aa00', markeredgecolor='black',
+                                  markeredgewidth=0.6, markersize=11,
+                                  label='Central-parietal ROI'))
+    if key_handles:
+        fig.legend(handles=key_handles, loc='lower center', ncol=len(key_handles),
+                   fontsize=TOPO_FS_KEY, frameon=False,
+                   bbox_to_anchor=(0.5, -0.02))
 
-    # Add post-hoc legend text
-    legend_lines = []
-    for (g1, g2), channels in posthoc_results.items():
-        if len(channels) > 0:
-            legend_lines.append(f'{g1} vs {g2}: {len(channels)} electrodes')
-    if legend_lines:
-        fig.text(0.5, 0.01, 'Significant pairs: ' + ' | '.join(legend_lines),
-                 ha='center', fontsize=10, style='italic')
+    # Single shared colorbar on the right (all three maps use the same vlim).
+    cbar = fig.colorbar(im, ax=list(axes), fraction=0.022, pad=0.02)
+    cbar.set_label(_cbar_label(metric, normalize), fontsize=TOPO_FS_CBAR_LABEL)
+    cbar.ax.tick_params(labelsize=TOPO_FS_CBAR_TICK)
 
-    plt.tight_layout(rect=[0, 0.03, 1, 0.93])
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
     suffix_parts = []
     if agg != 'mean':
         suffix_parts.append(agg)
-    if is_auc and not show_roi:
+    if is_auc and not show_roi and normalize:
         suffix_parts.append('no_roi')
+    if not normalize:
+        suffix_parts.append('raw')
     suffix = ('_' + '_'.join(suffix_parts)) if suffix_parts else ''
     fig_path = output_dir / f'three_group_topo_{metric}{suffix}.png'
     plt.savefig(fig_path, dpi=300, bbox_inches='tight')
@@ -1267,8 +1380,9 @@ def plot_three_group_topos(group_evokeds_list, group_names, metric, info,
     print(f"  Saved: {fig_path}")
 
     # F-statistic figure is mean-based and ROI-independent; only emit it once
-    # (on the default mean + show_roi pass) to avoid duplicates.
-    if agg != 'mean' or not show_roi:
+    # (on the default mean + show_roi + normalized pass) to avoid duplicates.
+    # fstat_fig=False skips it entirely (replotting without F_obs / clusters).
+    if not fstat_fig or agg != 'mean' or not show_roi or not normalize:
         return
 
     # --- Figure 2: F-statistic topography with all clusters ---
@@ -1293,8 +1407,10 @@ def plot_three_group_topos(group_evokeds_list, group_names, metric, info,
     # Plot F-statistic topography with RdBu_r colormap
     im_f, _ = mne.viz.plot_topomap(
         f_values, info, axes=ax2, show=False,
-        cmap='RdBu_r', contours=6
+        cmap='RdBu_r', contours=6, sphere=TOPO_SPHERE,
+        extrapolate=TOPO_EXTRAPOLATE,
     )
+    clip_topo_to_head(ax2, info)
 
     cbar_f = plt.colorbar(im_f, ax=ax2, fraction=0.046, pad=0.04)
     cbar_f.set_label('F-statistic', fontsize=11)
@@ -1315,7 +1431,8 @@ def plot_three_group_topos(group_evokeds_list, group_names, metric, info,
         if pos is None:
             # Fallback: project raw 3D positions to 2D the way MNE does
             from mne.viz.topomap import _find_topomap_coords
-            pos = _find_topomap_coords(info, picks=range(len(info['chs'])))
+            pos = _find_topomap_coords(info, picks=range(len(info['chs'])),
+                                       sphere=TOPO_SPHERE)
 
         # Padding: half the nearest-neighbor distance
         nn_dists = np.sort(cdist(pos, pos), axis=1)[:, 1]  # nearest neighbor per electrode
@@ -1376,7 +1493,8 @@ def _overlay_roi_markers(ax, info, n_channels):
     roi_idx = [i for i, ch in enumerate(ch_names) if ch in roi_set]
 
     from mne.channels.layout import _find_topomap_coords
-    pos = _find_topomap_coords(info, picks=range(len(info['chs'])))
+    pos = _find_topomap_coords(info, picks=range(len(info['chs'])),
+                               sphere=TOPO_SPHERE)
 
     if roi_idx:
         ax.scatter(pos[roi_idx, 0], pos[roi_idx, 1],
@@ -1405,7 +1523,8 @@ def _draw_roi_ellipse(ax, info, roi_channels, n_channels):
                 break
     if pos is None:
         from mne.viz.topomap import _find_topomap_coords
-        pos = _find_topomap_coords(info, picks=range(len(info['chs'])))
+        pos = _find_topomap_coords(info, picks=range(len(info['chs'])),
+                                   sphere=TOPO_SPHERE)
 
     roi_pos = pos[roi_idx]
     centroid = roi_pos.mean(axis=0)
@@ -1468,7 +1587,9 @@ def plot_three_group_topos_roi(group_evokeds_list, group_names, info, output_dir
         im, _ = mne.viz.plot_topomap(
             data, info, axes=ax, show=False,
             cmap='RdBu_r', vlim=(vmin, vmax), contours=6,
+            sphere=TOPO_SPHERE, extrapolate=TOPO_EXTRAPOLATE,
         )
+        clip_topo_to_head(ax, info)
 
         n_subjects = len(group_evokeds_list[g_idx])
         ax.set_title(f'{name}\n(N={n_subjects})', fontsize=12, fontweight='bold')
@@ -1492,18 +1613,18 @@ def main_three_group():
     """Run 3-group topographic comparison: electrode-wise ANOVA + cluster permutation + post-hoc."""
     # Load subjects
     young_subjects = get_all_subjects(f"{BASE_DIR}/control_clean/")
-    young_dir = Path("results/new_iso_results")
+    young_dir = Path("results/sigma_fix_YA")
     young_subjects = [s for s in young_subjects if (young_dir / s).exists() and s != "dashboards"]
 
     elderly_subjects = get_all_subjects(f"{BASE_DIR}/elderly_control_clean/")
-    elderly_dir = Path("results/new_elderly_results")
+    elderly_dir = Path("results/sigma_fix_HE")
     elderly_subjects = [s for s in elderly_subjects if (elderly_dir / s).exists() and s != "dashboards"]
 
     mci_subjects = get_all_subjects(f"{BASE_DIR}/MCI_clean/")
-    mci_dir = Path("results/new_MCI_results")
+    mci_dir = Path("results/sigma_fix_MCI")
     mci_subjects = [s for s in mci_subjects if (mci_dir / s).exists() and s != "dashboards"]
 
-    output_dir = Path("results/group_comparison_results/three_groups_V3")
+    output_dir = Path("results/group_comparison_results/three_groups_V10")
     output_dir.mkdir(exist_ok=True, parents=True)
 
     metrics = ['peak_frequency', 'bandwidth', 'auc']
@@ -1582,29 +1703,84 @@ def main_three_group():
 
     # Plot using stored results (no recomputation).
     # Render both mean and median group topographies; stats are mean-based either way.
-    for metric in metrics:
-        r = all_results[metric]
-        info = r['group_evokeds_list'][0][0].info
-        for agg in ('mean', 'median'):
-            print(f"\nPlotting {metric} ({agg})...")
-            plot_three_group_topos(
-                r['group_evokeds_list'], r['group_names'], metric, info,
-                r['posthoc_results'], r['F_obs'], r['sig_channel_indices'], output_dir,
-                clusters=r['clusters'], cluster_pv=r['cluster_pv'],
-                agg=agg,
-            )
+    # NOTE: temporarily commented out — only emitting the new raw AUC topo this run.
+    # for metric in metrics:
+    #     r = all_results[metric]
+    #     info = r['group_evokeds_list'][0][0].info
+    #     for agg in ('mean', 'median'):
+    #         print(f"\nPlotting {metric} ({agg})...")
+    #         plot_three_group_topos(
+    #             r['group_evokeds_list'], r['group_names'], metric, info,
+    #             r['posthoc_results'], r['F_obs'], r['sig_channel_indices'], output_dir,
+    #             clusters=r['clusters'], cluster_pv=r['cluster_pv'],
+    #             agg=agg,
+    #         )
 
-    # Extra AUC mean topo without the ROI overlay (keeps sig dots + color scale).
+    # Normalized AUC three-group topo (V5: re-enabled for the normalized set).
+    # Uses per-subject normalize_subject_channels imputation + averaging,
+    # then displays with sig dots + ROI overlay (the V2/V3 default style).
     if 'auc' in all_results:
         r = all_results['auc']
         info = r['group_evokeds_list'][0][0].info
-        print(f"\nPlotting auc (mean, no ROI)...")
+        print(f"\nPlotting auc (normalized, mean)...")
         plot_three_group_topos(
             r['group_evokeds_list'], r['group_names'], 'auc', info,
             r['posthoc_results'], r['F_obs'], r['sig_channel_indices'], output_dir,
             clusters=r['clusters'], cluster_pv=r['cluster_pv'],
-            agg='mean', show_roi=False,
+            agg='mean',
         )
+
+    # Peak-frequency and bandwidth normalized topos (mean) for the supplementary figure.
+    for metric in ('peak_frequency', 'bandwidth'):
+        if metric in all_results:
+            r = all_results[metric]
+            info = r['group_evokeds_list'][0][0].info
+            print(f"\nPlotting {metric} (normalized, mean)...")
+            plot_three_group_topos(
+                r['group_evokeds_list'], r['group_names'], metric, info,
+                r['posthoc_results'], r['F_obs'], r['sig_channel_indices'], output_dir,
+                clusters=r['clusters'], cluster_pv=r['cluster_pv'],
+                agg='mean',
+            )
+
+    # Extra AUC mean topo without the ROI overlay — kept commented for V5.
+    # if 'auc' in all_results:
+    #     r = all_results['auc']
+    #     info = r['group_evokeds_list'][0][0].info
+    #     print(f"\nPlotting auc (mean, no ROI)...")
+    #     plot_three_group_topos(
+    #         r['group_evokeds_list'], r['group_names'], 'auc', info,
+    #         r['posthoc_results'], r['F_obs'], r['sig_channel_indices'], output_dir,
+    #         clusters=r['clusters'], cluster_pv=r['cluster_pv'],
+    #         agg='mean', show_roi=False,
+    #     )
+
+    # Raw (non-normalized) AUC topo for visualization — single source of truth
+    # via utils.topo_aggregation.build_raw_group_topo (also called by step4).
+    # Topo image: per-subject NaN cells filled by spatial-neighbor mean, then
+    # averaged across subjects per channel.
+    # Title 'mean=': mean of per-subject means (matches step6 violin exactly).
+    print(f"\nPreparing raw AUC topographies via utils.topo_aggregation...")
+    raw_topos, raw_means, raw_n_subjects = [], [], []
+    raw_info = None
+    for name, subjects, dir_path in [('Young',   young_subjects, young_dir),
+                                      ('Elderly', elderly_subjects, elderly_dir),
+                                      ('MCI',     mci_subjects, mci_dir)]:
+        print(f"  {name}...")
+        filt, _ = filter_subjects_by_detection_rate(subjects, min_detection_rate=0.2, dir_path=dir_path)
+        subs_data = load_all_subjects_data(filt, dir_path)
+        topo, m, _, info_ = build_raw_group_topo(subs_data, 'auc')
+        raw_topos.append(topo)
+        raw_means.append(m)
+        raw_n_subjects.append(len(subs_data))
+        raw_info = info_  # all groups share the same montage / channel set
+        print(f"    N={len(subs_data)}, displayed_mean={m:.4f}")
+
+    print(f"\nPlotting auc (raw, mean)...")
+    plot_three_group_raw_topos(
+        raw_topos, raw_means, ['Young', 'Elderly', 'MCI'],
+        raw_n_subjects, raw_info, 'auc', output_dir,
+    )
 
     # Plot AUC topo with ROI circle overlay (disabled for V2)
     # if 'auc' in all_results:

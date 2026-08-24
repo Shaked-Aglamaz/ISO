@@ -114,9 +114,9 @@ def plot_mean_spectrum_with_fit(plot_data, subject_id='', channel_name='', outpu
         
         # Fill ±1σ area with pre-calculated AUC
         mask = (x_fit >= x1) & (x_fit <= x2)
-        plt.fill_between(x_fit[mask], y_fit[mask], color='#A23B72', alpha=0.2, 
+        plt.fill_between(x_fit[mask], y_fit[mask], color='#A23B72', alpha=0.2,
                         label=f'±1σ Area (AUC={auc:.3f})', zorder=1)
-    
+
     # 3. Add threshold line if provided
     if threshold is not None:
         plt.axhline(y=threshold, color='gray', linestyle='--', linewidth=2, 

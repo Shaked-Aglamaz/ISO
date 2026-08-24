@@ -1,4 +1,5 @@
 import os
+import shutil
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -12,6 +13,52 @@ from scipy.ndimage import uniform_filter1d
 
 from utils.config import BASE_DIR
 from utils.utils import get_all_subjects
+from utils.topo_aggregation import build_raw_group_topo
+
+# Sphere passed to every mne.viz.plot_topomap call. 'auto' fits the sphere to
+# the EGI-256 electrode cloud (center ~ (0, 0.009, 0.042), r=0.095) so the scalp
+# cap fills the head outline and the occipital electrodes project down to the
+# rim. The MNE default (sphere=None -> (0,0,0,0.095)) instead crams the whole
+# net inside the circle, pushing the occipital row up into the parietal area and
+# leaving the bottom of the head empty. Deterministic for this standard montage,
+# so identical across all subjects/groups. See code/topo_montage_test.py.
+TOPO_SPHERE = "auto"
+
+# Extrapolation extent for the colored field. Option B (locked 2026-06): use the
+# MNE EEG default 'head' (field expands to reach the outermost sensor) and then
+# CLIP the field + contours to the head circle via ``clip_topo_to_head`` so the
+# colour does not spill past the outline. This gives a clean complete circle with
+# the occipital electrodes still low (from TOPO_SPHERE='auto'), without the
+# non-circular look of 'local'. Fill-extent only; does not move electrodes.
+TOPO_EXTRAPOLATE = "head"
+
+
+def clip_topo_to_head(ax, info, sphere=None):
+    """Clip a topomap's colored field + contour lines to the head circle.
+
+    Option B for the EGI-256 projection: ``extrapolate='head'`` lets the field
+    spill past the outline (~19% of electrodes project outside the 'auto' sphere),
+    so we clip the AxesImage and the contour collections to a circle of the
+    resolved sphere radius. Sensor / mask / ROI markers (PathCollection) are left
+    untouched. Call immediately after ``plot_topomap`` and BEFORE adding any
+    overlay (ROI dots, cluster circles, ROI ellipse) so overlays are not clipped.
+    """
+    from matplotlib.patches import Circle
+    from matplotlib.collections import PathCollection
+    if sphere is None:
+        sphere = TOPO_SPHERE
+    from mne.viz.topomap import _check_sphere
+    s = np.asarray(_check_sphere(sphere, info), dtype=float)
+    cx, cy, r = float(s[0]), float(s[1]), float(s[-1])
+    clip = Circle((cx, cy), r, transform=ax.transData)
+    for im in ax.images:
+        im.set_clip_path(clip)
+    for coll in ax.collections:
+        # Contours are LineCollection / ContourSet (not PathCollection); clip
+        # those but keep sensor and overlay dots (PathCollection) intact.
+        if not isinstance(coll, PathCollection):
+            coll.set_clip_path(clip)
+    return clip
 
 
 def normalize_subject_channels(values):
@@ -404,9 +451,16 @@ def extract_channel_values(channel_averages, channel_names, metric):
     return np.array(values)
 
 
-def plot_single_topography(values, info, ax, metric_info, normalize=True):
-    """Plot single topographical map with optional normalization and missing data handling."""
-    # Count data availability
+def plot_single_topography(values, info, ax, metric_info, normalize=True, displayed_mean=None):
+    """Plot single topographical map.
+
+    When ``displayed_mean`` is supplied (multi-subject raw path via
+    ``utils.topo_aggregation.build_raw_group_topo``), the title uses that
+    scalar directly and the 3σ outlier trim is skipped. ``values`` in that
+    path is already neighbor-imputed and contains no NaN. When ``None``
+    (single-subject or normalized paths), behaviour falls back to the legacy
+    nanmean + 3σ-trim computation.
+    """
     total_electrodes = len(values)
     valid_mask = ~np.isnan(values)
     n_valid = np.sum(valid_mask)
@@ -419,25 +473,28 @@ def plot_single_topography(values, info, ax, metric_info, normalize=True):
         ax.set_title(f'{metric_info["name"]}\n(0/{total_electrodes} channels)', fontsize=12)
         return None
 
-    mean_val = np.nanmean(values)
-    std_val = np.nanstd(values)
-
-    if std_val > 0:
-        outlier_mask = np.abs(values - mean_val) > 3 * std_val
-        cleaned_values = values.copy()
-        cleaned_values[outlier_mask] = np.nan
-        n_outliers = np.sum(outlier_mask)
-    else:
-        cleaned_values = values
+    if displayed_mean is not None:
+        # Multi-subject raw path: trust the caller's mean, no 3σ trim.
+        plot_values = values
+        mean_value = float(displayed_mean)
         n_outliers = 0
+    else:
+        mean_val = np.nanmean(values)
+        std_val = np.nanstd(values)
+        if std_val > 0:
+            outlier_mask = np.abs(values - mean_val) > 3 * std_val
+            cleaned_values = values.copy()
+            cleaned_values[outlier_mask] = np.nan
+            n_outliers = int(np.sum(outlier_mask))
+        else:
+            cleaned_values = values
+            n_outliers = 0
+        plot_values = cleaned_values
+        mean_value = float(np.nanmean(cleaned_values))
 
-    n_plotted = np.sum(~np.isnan(cleaned_values))
-    mean_value = np.nanmean(cleaned_values)
-
-    plot_values = cleaned_values
+    n_plotted = int(np.sum(~np.isnan(plot_values)))
     title = f'{metric_info["name"]}\n(Mean = {mean_value:.3f} {metric_info["unit"]})'
 
-    # Add data availability info to title
     if n_missing > 0 or n_outliers > 0:
         availability_info = f'{n_plotted}/{total_electrodes} channels'
         if n_missing > 0:
@@ -451,27 +508,32 @@ def plot_single_topography(values, info, ax, metric_info, normalize=True):
 
         title += f'\n({availability_info})'
 
-    # Plot the topography
     vmin = np.nanmin(plot_values)
     vmax = np.nanmax(plot_values)
 
-    # Replace NaN values with mean for plotting (so MNE shows the data properly)
     plot_data = plot_values.copy()
     missing_data_mask = np.isnan(plot_values)
-
     if np.any(missing_data_mask):
         plot_data[missing_data_mask] = np.nanmean(plot_values)
 
-    # Plot the topography
     im, _ = mne.viz.plot_topomap(plot_data, info, axes=ax, show=False,
-                               cmap='RdBu_r', vlim=(vmin, vmax), contours=6)
+                               cmap='RdBu_r', vlim=(vmin, vmax), contours=6,
+                               sphere=TOPO_SPHERE, extrapolate=TOPO_EXTRAPOLATE)
+    clip_topo_to_head(ax, info)
 
     ax.set_title(title, fontsize=10)
     return mean_value
 
 
-def create_and_save_topography_figure(subjects, metrics, info, channel_averages, channel_names, normalize=True, output_dir=None, group_name=""):
-    """Create figure with all three topographical plots and save to file."""
+def create_and_save_topography_figure(subjects, metrics, info, channel_averages, channel_names, normalize=True, output_dir=None, group_name="", displayed_means=None):
+    """Create figure with all three topographical plots and save to file.
+
+    ``displayed_means`` is an optional dict ``{metric_key: float}`` whose
+    values are used directly as the title 'Mean = X' for each metric panel
+    (skipping the legacy 3σ-trim computation in ``plot_single_topography``).
+    Used by the multi-subject raw path to make the displayed scalar match
+    step6's violin (mean of per-subject means).
+    """
     # Create figure with subplots, but reserve space for colorbars
     fig, axes = plt.subplots(3, 1, figsize=(10, 12))
 
@@ -496,7 +558,8 @@ def create_and_save_topography_figure(subjects, metrics, info, channel_averages,
         ax = axes[i]
 
         values = extract_channel_values(channel_averages, channel_names, metric)
-        mean_value = plot_single_topography(values, info, ax, metric_info, normalize=normalize)
+        dm = displayed_means.get(metric) if displayed_means else None
+        mean_value = plot_single_topography(values, info, ax, metric_info, normalize=normalize, displayed_mean=dm)
 
         if mean_value is None:
             continue
@@ -518,10 +581,56 @@ def create_and_save_topography_figure(subjects, metrics, info, channel_averages,
 
 
 def plot_topographies(subjects, normalize=True, output_dir=None, group_name=""):
-    """Create topographical plots for the three spectral parameters with ISFS failure handling."""
+    """Create topographical plots for the three spectral parameters with ISFS failure handling.
+
+    Multi-subject + raw branch routes through ``utils.topo_aggregation.build_raw_group_topo``
+    so the displayed group mean matches step6's violin and the topo image
+    fills NaN cells via spatial-neighbor imputation. Other paths (1-subject,
+    or normalized) keep their previous behaviour.
+    """
     print(f"{'='*60}")
     print(f"TOPOGRAPHY ANALYSIS - {'Subject ' + subjects[0] if len(subjects) == 1 else f'{len(subjects)} Subjects'}")
 
+    metrics = {
+        'avg_peak_frequency': {'name': 'Peak Frequency', 'unit': 'Hz'},
+        'avg_bandwidth': {'name': 'Bandwidth', 'unit': 'Hz'},
+        'avg_auc': {'name': 'Area Under Curve', 'unit': 'AU'}
+    }
+
+    if not normalize and len(subjects) > 1:
+        # Multi-subject raw path: shared utility, single source of truth.
+        subjects_data = {s: load_subject_data(s, output_dir) for s in subjects}
+        subjects_data = {s: d for s, d in subjects_data.items() if d is not None}
+        if not subjects_data:
+            print("No subject data available for topography")
+            return
+
+        ca_rows = None
+        info = None
+        channel_names = None
+        displayed_means = {}
+        for raw_metric, avg_key in [('peak_frequency', 'avg_peak_frequency'),
+                                     ('bandwidth',      'avg_bandwidth'),
+                                     ('auc',            'avg_auc')]:
+            topo, mean, ch_names, info_ = build_raw_group_topo(subjects_data, raw_metric)
+            displayed_means[avg_key] = mean
+            if ca_rows is None:
+                ca_rows = {'channel': ch_names}
+                info = info_
+                channel_names = ch_names
+            ca_rows[avg_key] = topo
+
+        channel_averages_filtered = pd.DataFrame(ca_rows)
+
+        print(f"🎨 Creating topographical plots: #channels: {len(channel_names)}, #positions: {len(channel_names)} (Normalization: Disabled, neighbor-imputed)")
+        create_and_save_topography_figure(
+            subjects, metrics, info, channel_averages_filtered, channel_names,
+            normalize=False, output_dir=output_dir, group_name=group_name,
+            displayed_means=displayed_means,
+        )
+        return
+
+    # Legacy paths: 1-subject (raw or normalized) and multi-subject normalized.
     if normalize and len(subjects) > 1:
         # Per-subject normalization before averaging (preserves spatial patterns equally)
         channel_averages = compute_per_subject_normalized_averages(subjects, output_dir)
@@ -555,11 +664,6 @@ def plot_topographies(subjects, normalize=True, output_dir=None, group_name=""):
     valid_positions = len(channel_names)
     print(f"🎨 Creating topographical plots: #channels: {total_electrodes}, #positions: {valid_positions} (Normalization: {'Enabled' if normalize else 'Disabled'})")
 
-    metrics = {
-        'avg_peak_frequency': {'name': 'Peak Frequency', 'unit': 'Hz'},
-        'avg_bandwidth': {'name': 'Bandwidth', 'unit': 'Hz'},
-        'avg_auc': {'name': 'Area Under Curve', 'unit': 'AU'}
-    }
     create_and_save_topography_figure(subjects, metrics, info, channel_averages_filtered, channel_names, normalize=normalize, output_dir=output_dir, group_name=group_name)
 
 
@@ -975,11 +1079,16 @@ def plot_raw_channel_peak_frequency_violin(subjects, dir_path):
 def main():
     """Run distribution analysis across all subjects for all three groups."""
     group_configs = [
-        ("Young",   f"{BASE_DIR}/control_clean/",         Path("results/new_iso_results")),
-        ("Elderly", f"{BASE_DIR}/elderly_control_clean/", Path("results/new_elderly_results")),
-        ("MCI",     f"{BASE_DIR}/MCI_clean/",             Path("results/new_MCI_results")),
+        ("Young",   f"{BASE_DIR}/control_clean/",         Path("results/sigma_fix_YA")),
+        ("Elderly", f"{BASE_DIR}/elderly_control_clean/", Path("results/sigma_fix_HE")),
+        ("MCI",     f"{BASE_DIR}/MCI_clean/",             Path("results/sigma_fix_MCI")),
     ]
     target_channel = "E101"
+
+    # V5 collects the per-group raw + normalized topographies alongside step5/step6
+    # outputs for the three-group comparison.
+    V5_DIR = Path("results/group_comparison_results/three_groups_V10")
+    V5_DIR.mkdir(parents=True, exist_ok=True)
 
     for group_name, data_dir, output_dir in group_configs:
         print(f"\n{'#'*80}\n  GROUP: {group_name}\n{'#'*80}")
@@ -995,36 +1104,47 @@ def main():
             print(f"No {group_name} subjects meet the detection rate criteria!")
             continue
 
-        # 1. Group-level violin: each subject averaged across all channels
-        plot_group_average_violin(subjects, output_dir)
+        # NOTE: items 1-6, the normalized topo (item 7), and the per-subject
+        # topographies loop (item 8) are temporarily commented out — this run
+        # only produces the per-group raw topography for the V4 comparison.
 
-        # 2. Per-subject violin: distribution across all channels within each subject (channels as dots)
-        for sub in subjects:
-            plot_subject_all_channels_violin(sub, output_dir)
+        # # 1. Group-level violin: each subject averaged across all channels
+        # plot_group_average_violin(subjects, output_dir)
+        #
+        # # 2. Per-subject violin: distribution across all channels within each subject (channels as dots)
+        # for sub in subjects:
+        #     plot_subject_all_channels_violin(sub, output_dir)
+        #
+        # # 3. Single-channel violin: one channel across all subjects
+        # df = collect_all_data(subjects, target_channel, output_dir)
+        # if df is not None:
+        #     plot_single_channel_violin(df, output_dir, target_channel)
+        #
+        # # 4. Peak channel-level violin: raw channels pooled across all subjects
+        # plot_raw_channel_peak_frequency_violin(subjects, output_dir)
+        #
+        # # 5. Group spectral power: averaged across all channels and subjects
+        # plot_group_spectral_power(subjects, output_dir, target_channel=None, smoothing_window=5, aggregate_channels=True)
+        #
+        # # 6. Single-channel spectral power: VREF averaged across subjects
+        # plot_group_spectral_power(subjects, output_dir, target_channel="VREF", smoothing_window=5, aggregate_channels=False)
 
-        # 3. Single-channel violin: one channel across all subjects
-        df = collect_all_data(subjects, target_channel, output_dir)
-        if df is not None:
-            plot_single_channel_violin(df, output_dir, target_channel)
-
-        # 4. Peak channel-level violin: raw channels pooled across all subjects
-        plot_raw_channel_peak_frequency_violin(subjects, output_dir)
-
-        # 5. Group spectral power: averaged across all channels and subjects
-        plot_group_spectral_power(subjects, output_dir, target_channel=None, smoothing_window=5, aggregate_channels=True)
-
-        # 6. Single-channel spectral power: VREF averaged across subjects
-        plot_group_spectral_power(subjects, output_dir, target_channel="VREF", smoothing_window=5, aggregate_channels=False)
-
-        # 7. Group topographies: spatial maps averaged across all subjects (normalized + raw)
+        # 7. Group topographies: spatial maps averaged across all subjects (raw + normalized for V5)
         plot_topographies(subjects, normalize=True,  output_dir=output_dir, group_name=group_name)
         plot_topographies(subjects, normalize=False, output_dir=output_dir, group_name=group_name)
 
-        # 8. Per-subject topographies: spatial maps for each individual subject
-    for sub in subjects:
-        sub_output_dir = Path(f"results/new_iso_results/{sub}/")
-        sub_output_dir.mkdir(exist_ok=True, parents=True)
-        plot_topographies([sub], normalize=False, subject_dir_suffix=None, output_dir=sub_output_dir, group="new_iso_results")
+        # Copy both topo variants into the V5 comparison dir.
+        for suffix in ('raw', 'normalized'):
+            src = output_dir / f"{group_name.split()[0]}_topographies_avg_{suffix}.png"
+            if src.exists():
+                shutil.copy(src, V5_DIR / src.name)
+                print(f"Copied {suffix} topo to: {V5_DIR / src.name}")
+
+        # # 8. Per-subject topographies: spatial maps for each individual subject
+    # for sub in subjects:
+    #     sub_output_dir = Path(f"results/new_iso_results/{sub}/")
+    #     sub_output_dir.mkdir(exist_ok=True, parents=True)
+    #     plot_topographies([sub], normalize=False, subject_dir_suffix=None, output_dir=sub_output_dir, group="new_iso_results")
 
 
 if __name__ == "__main__":

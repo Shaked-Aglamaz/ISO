@@ -30,3 +30,25 @@ EXTENDED_CENTRAL_PARIETAL_ROI = CENTRAL_PARIETAL_ROI + [
     'E87', 'E153', 'E53', 'E144', 'E45', 'E132', 'E60', 'E155',
     'E118', 'E127', 'E109', 'E140', 'E98', 'E152', 'E77', 'E163'
 ]
+
+# ---------------------------------------------------------------------------
+# Group palette for the paper figures.
+#
+# GROUP_COLOR_LIST is the original positional ColorBrewer Set3 slice used for
+# the violin fills; the dicts expose the same three hues by name so every
+# figure can code the groups identically (green / red / blue).
+# The _DARK variants are those hues darkened for text and marker edges, because
+# the pastel fills are unreadable as type.
+GROUP_COLOR_LIST = ['#8dd3c7', '#fb8072', '#80b1d3', '#fdb462', '#b3de69']
+GROUP_COLORS = {'Young': '#8dd3c7', 'Elderly': '#fb8072', 'MCI': '#80b1d3'}
+GROUP_COLORS_DARK = {'Young': '#2f9c86', 'Elderly': '#d0402c', 'MCI': '#2f7fae'}
+
+# Names the figures print, as opposed to the names the pipeline keys on.
+# 'MCI' is a lookup key here, in the result directory names and in the saved
+# stats files, so the manuscript's aMCI label is applied at draw time only.
+GROUP_DISPLAY = {'Young': 'Young', 'Elderly': 'Elderly', 'MCI': 'aMCI'}
+
+
+def group_label(name):
+    """Return the on-figure label for an internal group name."""
+    return GROUP_DISPLAY.get(name, name)

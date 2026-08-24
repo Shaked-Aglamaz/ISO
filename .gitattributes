@@ -1,0 +1,38 @@
+# core.autocrlf=true on this machine would mangle binaries that git's
+# heuristic misreads as text (some PDFs). Pin them explicitly.
+*.pdf   binary
+*.docx  binary
+*.doc   binary
+*.pptx  binary
+*.ppt   binary
+*.xlsx  binary
+*.xls   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.svg   binary
+*.tif   binary
+*.tiff  binary
+*.eps   binary
+*.fif   binary
+*.mff   binary
+*.npy   binary
+*.npz   binary
+*.mat   binary
+*.pkl   binary
+*.zip   binary
+*.ttf   binary
+*.otf   binary
+
+# Text files: normalize to LF in the repo, native in the working tree
+*.py    text
+*.ipynb text
+*.md    text
+*.txt   text
+*.json  text
+*.yml   text
+*.yaml  text
+*.csv   text
+*.tex   text
+*.bib   text

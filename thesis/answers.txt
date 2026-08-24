@@ -1,0 +1,125 @@
+i answered to all the bullets and tried being as organized as i can. now i want you to read, apply the changes and output a summary (review V2 PDF, keep the same mapping for Flavio's comments): 
+* in the bullets where i agreed, apply the change, and just list the numbers as applied. 
+* in the bullets where i asked you something, dont apply the change yet, answer to me in the summary and then ill give you the next step. 
+* Flavio also deleted and edited some sentences inplace and not as a comment - did you address this in the summary? if not, add them as a new category in the new PDF
+
+
+category 1 - A+B (first two rows in the table) are really for later, but the last one in this section (46) so we can do. move it to category 2 (in the v2 pdf) with the suggested change so i'll review. 
+
+category 2 -
+
+title and abstract: 
+2: lets go for the less technical title, im just not sure which term to use, “sigma” or “spindle” - what do you think?
+
+4: 
+* i agree with him about the first 2 sentences being repetitive, lets try to improve this - simplify and remove the repetition. 
+* don't say "almost none has looked at ISFS in old" — just state what's unknown - ok, lets to this.
+* the "peak frequency, bandwidth, AUC of the sigma-envelope spectrum at every channel" clause is too specific - agree too, we dont need that much details in the abstract. 
+* ok for the too technical results too. 
+* ok for the ending change. 
+
+intro:
+6: suggest a short opener paragraph like Flavio mentioned and let me review it 
+
+7: change to large part
+
+8: do it 
+
+12: do it
+
+methods: 
+17: do it 
+
+18: dont change 
+
+25: even i got confused by reading this. lets rephrase these two paragraphs: “For each channel, the fast-spindle sigma-band (13–16 Hz) amplitude envelope was obtained with a Gabor–Morlet wavelet transformation, implemented as frequency-domain convolution via the fast Fourier transformation(FFT). Wavelets spanned 13.0–16.0 Hz in 0.2 Hz steps with a fixed width of 4 cycles, and the resulting complex coefficients gave the time-varying sigma-power envelope.
+For each clean bout, the envelope was mean-subtracted to remove the DC component and Fourier-transformed; the squared-magnitude spectrum was interpolated onto a common frequency axis and normalized by its own mean. “
+* i want it to be first a very basic and understandable set of actions, and then we can elaborate more technically with the reasoning behind every step.
+* opening once with “for each channel” and once with “for each clean bout” is confusing, 
+* lets say something like “for each clean bout in each channel, we extracted the fast spindles 13-16hz envelope, subtracted its mean, and applied FFT to switch to the frequency domain. then, we calculated the actual power of each frequency to measure the intensity of its fluctuations, and finally, scaled these values by their overall average to account for baseline differences in signal strength."
+* then we should elaborate on all the too-technical stuff: gabor morlet, dc component, square magnitude, frequency grid and all the math explanations we simplified from the first part. 
+* fix my suggestion only if needed and suggest the following one. 
+
+26: do it 
+
+27: do it 
+
+28: do it 
+
+39: im thinking of breaking this paragraph entirely, this is a bit of a kitbag info. lets just add the relevant info when we describe each result: when talking about the topos note that they show the mean of per-subject mean, and interpolate missing channels only for display. remove the violin plot notation. for the moca correlation also note in the relevant section (although this is already pretty obvious, check if need to add anything or just remove this sentence. 
+
+40: not sure about this one - WDYT? 
+
+64: ok
+
+results: 
+30, 32: ok
+
+36: i disagree with Flavio, don’t change
+
+37: ok
+
+44, 49: ok
+
+48: ok
+
+50, 51, 65: ok 
+
+54: ok
+
+55: ok 
+
+56, 62, 66: ok
+
+58: ok
+
+67: ok
+
+70, 71: ok 
+
+73: ok
+
+discussion: 
+77: ok, suggest a fix and let me see
+
+81: ok
+
+94: ok
+
+96: ok, remove from the section, state the trend in the result shortly. 
+
+104: ok
+
+105: ok
+
+108: ok (wait with the humanizer pass for the end, I’ll trigger it) 
+
+112: add
+
+114: ok 
+
+115: ok
+
+116: definitely too much. 
+1. keep the first one as is
+2. i feel like the second limitation is too repetitive of all the stuff we already told, can we make it shorter?  
+3. keep as is
+4. remove the forth "Cognitive scores were available for only part..." as it was already mentioned 
+5. also remove "the criterion we used to count a channel ...." - make sure this doesn't appear in any of the thesis parts. 
+
+
+119: ok, can we refer shortly to other similar coupling? like spindles-slow waves and so on	
+
+
+category 4:
+9: i lean towards explaining better the difference between the points of lazar and Dimitriades, does that make sense? elaborate a bit more of lazar's finding and population, and then state that Dimitriades is a bit more specific and looking into development. correct me if im wrong. 
+
+25: i elaborated in category 2. 
+
+35: ok
+
+106: ok
+
+113: just remove this part of the sentence, finish with: "rather than whether cognition has begun to decline".
+
+120: of course we would want to measure the humans LC but we can't. let's instead finish this paragraph with something like: "[all the future work mentioned] - as long as we can't directly measure the LC, this is the best we can do" (in a formal phrasing). 

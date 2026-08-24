@@ -4,6 +4,8 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from matplotlib.patches import Circle, Rectangle
+from matplotlib.offsetbox import TextArea, DrawingArea, HPacker, AnchoredOffsetbox
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -11,7 +13,8 @@ from scipy.stats import shapiro, levene, ttest_ind, mannwhitneyu, f_oneway, krus
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 import scikit_posthocs as sp
 
-from utils.config import BASE_DIR, CENTRAL_PARIETAL_ROI, EXTENDED_CENTRAL_PARIETAL_ROI
+from utils.config import (BASE_DIR, CENTRAL_PARIETAL_ROI, EXTENDED_CENTRAL_PARIETAL_ROI,
+                          GROUP_COLOR_LIST, GROUP_COLORS_DARK, group_label)
 from utils.utils import get_all_subjects
 
 from step4_distribution_analysis import (
@@ -998,9 +1001,57 @@ def load_and_process_roi_data_normalized(subjects, group=None, roi_channels=None
     return subject_averages, total_channels, len(subject_averages)
 
 
+# Colors matching the Gaussian-fit figure (visualization.plot_mean_spectrum_with_fit):
+#   peak  -> purple dot      (#A23B72, marker 'o')
+#   bandwidth -> orange line (#F18F01, hlines)
+#   auc   -> light purple ±1sigma area (#A23B72, alpha=0.2 fill)
+GAUSSIAN_PEAK_COLOR = '#A23B72'
+GAUSSIAN_BW_COLOR = '#F18F01'
+GAUSSIAN_AUC_COLOR = '#A23B72'
+GAUSSIAN_AUC_ALPHA = 0.2
+
+
+# Group palette lives in utils.config so every paper figure codes the groups
+# with the same green / red / blue (see GROUP_COLORS there).
+
+
+def set_title_with_gaussian_icon(ax, metric, title, fontsize=14):
+    """
+    Set a subplot title with a small icon to its left that visually links the
+    metric to how it is drawn in the Gaussian-fit figure:
+      - peak_frequency : purple dot
+      - bandwidth      : orange horizontal line
+      - auc            : light-purple filled rectangle (the +/-1 sigma area)
+
+    Uses the exact same colors as visualization.plot_mean_spectrum_with_fit.
+    """
+    # Drawing area in points; sized to roughly match the title cap height.
+    w, h = 24.0, 14.0
+    da = DrawingArea(w, h, 0, 0)
+
+    if metric == 'peak_frequency':
+        da.add_artist(Circle((w / 2.0, h / 2.0), 6.0, color=GAUSSIAN_PEAK_COLOR))
+    elif metric == 'bandwidth':
+        da.add_artist(Line2D([1.0, w - 1.0], [h / 2.0, h / 2.0],
+                             color=GAUSSIAN_BW_COLOR, linewidth=3.5,
+                             solid_capstyle='butt'))
+    elif metric == 'auc':
+        da.add_artist(Rectangle((1.0, 1.0), w - 2.0, h - 2.0,
+                                facecolor=GAUSSIAN_AUC_COLOR,
+                                alpha=GAUSSIAN_AUC_ALPHA,
+                                edgecolor=GAUSSIAN_AUC_COLOR, linewidth=0.8))
+
+    ta = TextArea(title, textprops=dict(fontsize=fontsize, fontweight='bold'))
+    box = HPacker(children=[da, ta], align='center', pad=0, sep=6)
+    anchored = AnchoredOffsetbox(loc='lower center', child=box, pad=0,
+                                 frameon=False, bbox_to_anchor=(0.5, 1.03),
+                                 bbox_transform=ax.transAxes, borderpad=0)
+    ax.add_artist(anchored)
+
+
 def plot_group_comparison(groups_dict, output_dir, test_results=None, normalize=False,
                           roi_only=False, roi_channels=None, roi_label='ROI',
-                          metrics_filter=None):
+                          metrics_filter=None, show_title=True, paper_style=False):
     """
     Compare multiple groups side-by-side for each spectral parameter.
     Each data point represents one subject's average across all channels.
@@ -1031,8 +1082,8 @@ def plot_group_comparison(groups_dict, output_dir, test_results=None, normalize=
     if metrics_filter is not None:
         metrics = {k: metrics[k] for k in metrics_filter if k in metrics}
 
-    # Define colors for groups
-    colors = ['#8dd3c7', '#fb8072', '#80b1d3', '#fdb462', '#b3de69']
+    # Define colors for groups (module-level palette; see GROUP_COLORS)
+    colors = GROUP_COLOR_LIST
 
     # Collect data for all groups
     group_data = {}
@@ -1059,14 +1110,36 @@ def plot_group_comparison(groups_dict, output_dir, test_results=None, normalize=
             'total_channels': total_channels
         }
 
-    # Create figure: one subplot per metric
+    # Create figure: one subplot per metric.
+    # paper_style stacks the metrics into a single column. The figure is pasted
+    # at page width in the manuscript, so a 19.5 in wide row of three panels
+    # shrinks about 3x while a stacked column barely shrinks at all; stacking
+    # keeps the rendered text the same size as the one-metric figures.
+    # The column is 9.5 x 11.4 rather than 7.5 x 16.2: at 2.13:1 the figure had
+    # to be sized to the 9 in page height, which capped it at 4.2 in wide and
+    # left no room for the caption. At 1.20:1 it fills the 6.5 in text width,
+    # stands 7.8 in tall, and renders its type about 40% larger.
     n_metrics = len(metrics)
-    fig_width = max(7, 6.5 * n_metrics)
-    fig, axes = plt.subplots(1, n_metrics, figsize=(fig_width, 8), squeeze=False)
-    axes = axes[0]
-    roi_title = f" ({roi_label})" if roi_only else ""
-    norm_title = " (Normalized)" if normalize else ""
-    fig.suptitle(f'Group Comparison - Spectral Parameters{roi_title}{norm_title}\n(Each point = 1 subject)', fontsize=16, fontweight='bold', y=0.98)
+    if paper_style and n_metrics > 1:
+        fig, axes = plt.subplots(n_metrics, 1, figsize=(9.5, 3.8 * n_metrics),
+                                 squeeze=False)
+    else:
+        fig_width = max(7, 6.5 * n_metrics)
+        fig, axes = plt.subplots(1, n_metrics, figsize=(fig_width, 8), squeeze=False)
+    axes = axes.ravel()
+    # Title shows a clean ROI label (drop the "extended" qualifier); the
+    # filename below keeps the full roi_label.
+    if show_title:
+        roi_title_label = roi_label.replace("extended_", "").replace("_", " ")
+        roi_title = f" ({roi_title_label})" if roi_only else ""
+        norm_title = " (Normalized)" if normalize else ""
+        fig.suptitle(f'Group Comparison - Spectral Parameters{roi_title}{norm_title}\n(Each point = 1 subject)', fontsize=16, fontweight='bold', y=0.98)
+
+    # Larger fonts for the paper figure (paper_style); defaults otherwise.
+    fs_title = 22 if paper_style else 14
+    fs_label = 20 if paper_style else 12
+    fs_tick = 19 if paper_style else 11
+    fs_ast = 28 if paper_style else 18
 
     for metric_idx, (metric, metric_info) in enumerate(metrics.items()):
         ax = axes[metric_idx]
@@ -1118,48 +1191,45 @@ def plot_group_comparison(groups_dict, output_dir, test_results=None, normalize=
             medianprops=dict(color='orange', linewidth=2)
         )
 
-        # Add individual dots with jitter
+        # Add individual dots with jitter. paper_style colors each group's dots
+        # with the darkened group hue so the palette reads consistently across
+        # the whole figure set; other callers keep the original single color.
         np.random.seed(42)
         for i, group_name in enumerate(group_data.keys()):
             group_values = group_data[group_name]['data'][metric].dropna()
             x_jitter = np.random.normal(i, 0.04, size=len(group_values))
-            ax.scatter(x_jitter, group_values, alpha=0.5, s=40, color='darkblue',
+            dot_color = (GROUP_COLORS_DARK.get(group_name, 'darkblue')
+                         if paper_style else 'darkblue')
+            ax.scatter(x_jitter, group_values, alpha=0.6, s=40, color=dot_color,
                       edgecolors='black', linewidths=0.5, zorder=3)
 
         # Formatting
-        ax.set_title(metric_info['name'], fontsize=14, fontweight='bold')
+        set_title_with_gaussian_icon(ax, metric, metric_info['name'], fontsize=fs_title)
         unit_label = 'Normalized (/ mean)' if normalize else metric_info["unit"]
-        ax.set_ylabel(f'{metric_info["name"]} ({unit_label})', fontsize=12)
-        ax.set_xlabel('Group', fontsize=12)
+        ax.set_ylabel(f'{metric_info["name"]} ({unit_label})', fontsize=fs_label)
+        # paper_style: drop the "Group" x-label and fold the group N into the
+        # tick labels (e.g. "Young (N=35)"); per-group stats and p-values move
+        # to the manuscript Results text.
+        ax.set_xlabel('' if paper_style else 'Group', fontsize=fs_label)
         ax.set_xticks(range(len(group_data)))
-        ax.set_xticklabels(list(group_data.keys()), fontsize=11)
+        if paper_style:
+            xticklabels = [f"{group_label(g)}\n(N={group_data[g]['n_subjects']})"
+                           for g in group_data.keys()]
+        else:
+            xticklabels = list(group_data.keys())
+        ax.set_xticklabels(xticklabels, fontsize=fs_tick)
+        ax.tick_params(axis='y', labelsize=fs_tick)
         ax.grid(True, alpha=0.3, axis='y')
 
-        # Add statistics text for each group
-        stats_y_position = 0.98
-        for group_idx, group_name in enumerate(group_data.keys()):
-            group_values = group_data[group_name]['data'][metric].dropna()
-            n = len(group_values)
-            mean_val = group_values.mean()
-            std_val = group_values.std()
-            median_val = group_values.median()
-
-            stats_text = f'{group_name}: N={n}, μ={mean_val:.3f}, σ={std_val:.3f}, M={median_val:.3f}'
-            ax.text(0.02, stats_y_position - (group_idx * 0.06), stats_text,  # Changed from 0.08 to 0.06
-                   transform=ax.transAxes, fontsize=9,
-                   verticalalignment='top', horizontalalignment='left',
-                   bbox=dict(boxstyle='round', facecolor=colors[group_idx], alpha=0.3))
-
-        # Add significance markers if test results are provided
+        # Collect significant pairs first so we can extend the y-axis to fit
+        # the bracket band BELOW the stats legend (legend stays at the top).
+        sig_pairs = []
         if test_results is not None and metric in test_results:
             result = test_results[metric]
             pairs = result.get('pairs', {})
-            # Build mapping from group name to x-position
             group_name_list = list(group_data.keys())
             group_pos = {name: idx for idx, name in enumerate(group_name_list)}
 
-            # Collect significant pairs
-            sig_pairs = []
             for (g1, g2), pdata in pairs.items():
                 if pdata.get('significant', False):
                     p_value = pdata['p_value']
@@ -1176,34 +1246,83 @@ def plot_group_comparison(groups_dict, output_dir, test_results=None, normalize=
                     if x1 is not None and x2 is not None:
                         sig_pairs.append((min(x1, x2), max(x1, x2), p_value, sig_marker))
 
-            if sig_pairs:
-                # Sort by span width so narrower brackets are drawn lower
-                sig_pairs.sort(key=lambda t: t[1] - t[0])
+            # Sort by span width so narrower brackets are drawn lower (closer to data)
+            sig_pairs.sort(key=lambda t: t[1] - t[0])
 
-                y_min, y_max = ax.get_ylim()
-                y_range = y_max - y_min
-                # Extend upper limit to fit all brackets
-                new_y_max = y_max + 0.12 * y_range * len(sig_pairs)
-                ax.set_ylim(y_min, new_y_max)
-                y_range = new_y_max - y_min
-                bar_height = 0.015 * y_range
+        # Layout in axes coordinates: stats legend at top, bracket band below it,
+        # data below the bracket band. Extend ylim so data fits in the bottom portion.
+        n_groups = len(group_data)
+        stats_top_axes = 0.98
+        stats_line_spacing = 0.06
+        # paper_style hides the per-group stats boxes, so reclaim that top band
+        # for the brackets/data instead of reserving it for the legend.
+        stats_bottom_axes = (stats_top_axes if paper_style
+                             else stats_top_axes - n_groups * stats_line_spacing)
 
-                for bracket_idx, (x1, x2, p_value, sig_marker) in enumerate(sig_pairs):
-                    y_position = y_max + (0.03 + bracket_idx * 0.10) * y_range
+        y_min, y_max = ax.get_ylim()
+        y_range_orig = y_max - y_min
 
-                    # Horizontal line
-                    ax.plot([x1, x2], [y_position, y_position], 'k-', linewidth=1.5, zorder=10)
-                    # Vertical ticks
-                    ax.plot([x1, x1], [y_position - bar_height, y_position], 'k-', linewidth=1.5, zorder=10)
-                    ax.plot([x2, x2], [y_position - bar_height, y_position], 'k-', linewidth=1.5, zorder=10)
-                    # Asterisks
-                    ax.text((x1 + x2) / 2, y_position + 0.005 * y_range, sig_marker,
-                           ha='center', va='bottom', fontsize=18, fontweight='bold', zorder=10)
-                    # P-value
-                    ax.text((x1 + x2) / 2, y_position - 0.020 * y_range, f'p={p_value:.4f}',
+        if sig_pairs:
+            N = len(sig_pairs)
+            bracket_spacing_axes = 0.10
+            # Top bracket sits just below the stats legend; lower brackets fall
+            # below it. Reserve ~0.04 above the top bracket for the asterisk text
+            # and ~0.03 below the lowest bracket for the p-value text + margin.
+            # The asterisk is drawn above its bracket, so the top bracket has to
+            # clear it. At paper_style's 28 pt on the shorter stacked panels that
+            # glyph is ~0.14 of the axes height, and the default 0.04 let it ride
+            # up into the panel title.
+            ast_headroom = 0.10 if paper_style else 0.04
+            highest_bracket_axes = stats_bottom_axes - 0.03 - ast_headroom
+            lowest_bracket_axes = highest_bracket_axes - (N - 1) * bracket_spacing_axes
+            data_top_axes = lowest_bracket_axes - 0.04
+
+            # Solve y_range_orig / y_range_new = data_top_axes
+            new_y_max = y_min + y_range_orig / data_top_axes
+            ax.set_ylim(y_min, new_y_max)
+            y_range_new = new_y_max - y_min
+            bar_height = 0.015 * y_range_new
+
+            for bracket_idx, (x1, x2, p_value, sig_marker) in enumerate(sig_pairs):
+                bracket_axes_y = lowest_bracket_axes + bracket_idx * bracket_spacing_axes
+                y_position = y_min + bracket_axes_y * y_range_new
+
+                # Horizontal line
+                ax.plot([x1, x2], [y_position, y_position], 'k-', linewidth=1.5, zorder=10)
+                # Vertical ticks
+                ax.plot([x1, x1], [y_position - bar_height, y_position], 'k-', linewidth=1.5, zorder=10)
+                ax.plot([x2, x2], [y_position - bar_height, y_position], 'k-', linewidth=1.5, zorder=10)
+                # Asterisks
+                ax.text((x1 + x2) / 2, y_position + 0.005 * y_range_new, sig_marker,
+                       ha='center', va='bottom', fontsize=fs_ast, fontweight='bold', zorder=10)
+                # P-value (omitted in paper_style; reported in the Results text)
+                if not paper_style:
+                    ax.text((x1 + x2) / 2, y_position - 0.020 * y_range_new, f'p={p_value:.4f}',
                            ha='center', va='top', fontsize=9, style='italic', zorder=10)
+        else:
+            # No brackets: still extend ylim so the data sits below the stats
+            # legend (otherwise the violins overlap the legend boxes).
+            data_top_axes = stats_bottom_axes - 0.04
+            new_y_max = y_min + y_range_orig / data_top_axes
+            ax.set_ylim(y_min, new_y_max)
 
-    plt.tight_layout(rect=[0, 0, 1, 0.96])  # Leave space for suptitle
+        # Add statistics text for each group (always anchored to the top).
+        # paper_style omits these boxes — the numbers live in the Results text.
+        if not paper_style:
+            for group_idx, group_name in enumerate(group_data.keys()):
+                group_values = group_data[group_name]['data'][metric].dropna()
+                n = len(group_values)
+                mean_val = group_values.mean()
+                std_val = group_values.std()
+                median_val = group_values.median()
+
+                stats_text = f'{group_name}: N={n}, μ={mean_val:.3f}, σ={std_val:.3f}, M={median_val:.3f}'
+                ax.text(0.02, stats_top_axes - (group_idx * stats_line_spacing), stats_text,
+                       transform=ax.transAxes, fontsize=9,
+                       verticalalignment='top', horizontalalignment='left',
+                       bbox=dict(boxstyle='round', facecolor=colors[group_idx], alpha=0.3))
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96] if show_title else [0, 0, 1, 1])  # Leave space for suptitle
 
     # Save plot
     output_dir = Path(output_dir)
@@ -1234,12 +1353,12 @@ def plot_group_comparison(groups_dict, output_dir, test_results=None, normalize=
 def run_two_group_comparison():
     """Run 2-group statistical comparison (Young vs Elderly) and save results."""
     young_subjects = get_all_subjects(f"{BASE_DIR}/control_clean/")
-    young_results_dir = Path("results/new_iso_results")
+    young_results_dir = Path("results/sigma_fix_YA")
     young_subjects = [sub for sub in young_subjects if (young_results_dir / sub).exists() and sub != "dashboards"]
     young_subjects, _ = filter_subjects_by_detection_rate(young_subjects, dir_path=young_results_dir)
 
     elderly_subjects = get_all_subjects(f"{BASE_DIR}/elderly_control_clean/")
-    elderly_results_dir = Path("results/new_elderly_results")
+    elderly_results_dir = Path("results/sigma_fix_HE")
     elderly_subjects = [sub for sub in elderly_subjects if (elderly_results_dir / sub).exists() and sub != "dashboards"]
     elderly_subjects, _ = filter_subjects_by_detection_rate(elderly_subjects, dir_path=elderly_results_dir)
 
@@ -1279,17 +1398,17 @@ def run_three_group_comparison():
     """Run 3-group statistical comparison (Young vs Elderly vs MCI) and save results."""
     # Load all 3 groups
     young_subjects = get_all_subjects(f"{BASE_DIR}/control_clean/")
-    young_results_dir = Path("results/new_iso_results")
+    young_results_dir = Path("results/sigma_fix_YA")
     young_subjects = [sub for sub in young_subjects if (young_results_dir / sub).exists() and sub != "dashboards"]
     young_subjects, _ = filter_subjects_by_detection_rate(young_subjects, dir_path=young_results_dir)
 
     elderly_subjects = get_all_subjects(f"{BASE_DIR}/elderly_control_clean/")
-    elderly_results_dir = Path("results/new_elderly_results")
+    elderly_results_dir = Path("results/sigma_fix_HE")
     elderly_subjects = [sub for sub in elderly_subjects if (elderly_results_dir / sub).exists() and sub != "dashboards"]
     elderly_subjects, _ = filter_subjects_by_detection_rate(elderly_subjects, dir_path=elderly_results_dir)
 
     mci_subjects = get_all_subjects(f"{BASE_DIR}/MCI_clean/")
-    mci_results_dir = Path("results/new_MCI_results")
+    mci_results_dir = Path("results/sigma_fix_MCI")
     mci_subjects = [sub for sub in mci_subjects if (mci_results_dir / sub).exists() and sub != "dashboards"]
     mci_subjects, _ = filter_subjects_by_detection_rate(mci_subjects, dir_path=mci_results_dir)
 
@@ -1314,7 +1433,7 @@ def run_three_group_comparison():
     }
 
     # Run the full 3-group statistical pipeline (output to file)
-    comparison_output_dir = Path("results/group_comparison_results/three_groups")
+    comparison_output_dir = Path("results/group_comparison_results/three_groups_V10")
     comparison_output_dir.mkdir(exist_ok=True, parents=True)
     stats_report_path = comparison_output_dir / "three_group_statistics.txt"
     with open(stats_report_path, 'w', encoding='utf-8') as f:
@@ -1331,49 +1450,41 @@ def run_three_group_comparison():
     plot_group_comparison(groups_dict, output_dir=comparison_output_dir,
                           test_results=three_group_results['posthoc'])
 
-    # Normalized violin plot (same normalization as topo plots)
-    plot_group_comparison(groups_dict, output_dir=comparison_output_dir,
-                          test_results=three_group_results['posthoc'],
-                          normalize=True)
+    # V5: extended-ROI normalized AUC violin only (plain normalized violin
+    # and core-ROI variant remain commented; user wants extended ROI per
+    # project_roi_choice memory).
+    roi_channels = EXTENDED_CENTRAL_PARIETAL_ROI
+    roi_label = 'extended_ROI'
+    roi_group_data = {
+        'Young': {
+            'data': load_and_process_roi_data_normalized(
+                young_subjects, young_results_dir, roi_channels=roi_channels)[0],
+            'n_subjects': len(young_subjects),
+        },
+        'Elderly': {
+            'data': load_and_process_roi_data_normalized(
+                elderly_subjects, elderly_results_dir, roi_channels=roi_channels)[0],
+            'n_subjects': len(elderly_subjects),
+        },
+        'MCI': {
+            'data': load_and_process_roi_data_normalized(
+                mci_subjects, mci_results_dir, roi_channels=roi_channels)[0],
+            'n_subjects': len(mci_subjects),
+        },
+    }
+    roi_stats_path = comparison_output_dir / f"three_group_statistics_{roi_label}_normalized_auc.txt"
+    with open(roi_stats_path, 'w', encoding='utf-8') as f:
+        with redirect_stdout(f):
+            roi_results = run_three_group_tests(roi_group_data, {'auc': metrics['auc']})
+    print(f"Normalized ROI ({roi_label}) statistics saved to: {roi_stats_path}")
 
-    # Normalized ROI violin plots (same per-subject normalization as the topo).
-    # Each subject's channel values are divided by their own outlier-trimmed scalp mean
-    # before averaging over the ROI, so points > 1 mean the ROI is enhanced vs the rest
-    # of the scalp. This isolates hotspot concentration from rising global baseline.
-    for roi_channels, roi_label in [
-        (CENTRAL_PARIETAL_ROI, 'ROI'),
-        (EXTENDED_CENTRAL_PARIETAL_ROI, 'extended_ROI'),
-    ]:
-        roi_group_data = {
-            'Young': {
-                'data': load_and_process_roi_data_normalized(
-                    young_subjects, young_results_dir, roi_channels=roi_channels)[0],
-                'n_subjects': len(young_subjects),
-            },
-            'Elderly': {
-                'data': load_and_process_roi_data_normalized(
-                    elderly_subjects, elderly_results_dir, roi_channels=roi_channels)[0],
-                'n_subjects': len(elderly_subjects),
-            },
-            'MCI': {
-                'data': load_and_process_roi_data_normalized(
-                    mci_subjects, mci_results_dir, roi_channels=roi_channels)[0],
-                'n_subjects': len(mci_subjects),
-            },
-        }
-        roi_stats_path = comparison_output_dir / f"three_group_statistics_{roi_label}_normalized_auc.txt"
-        with open(roi_stats_path, 'w', encoding='utf-8') as f:
-            with redirect_stdout(f):
-                roi_results = run_three_group_tests(roi_group_data, {'auc': metrics['auc']})
-        print(f"Normalized ROI ({roi_label}) statistics saved to: {roi_stats_path}")
-
-        plot_group_comparison(
-            groups_dict, output_dir=comparison_output_dir,
-            test_results=roi_results['posthoc'],
-            normalize=True, roi_only=True,
-            roi_channels=roi_channels, roi_label=roi_label,
-            metrics_filter=['auc'],
-        )
+    plot_group_comparison(
+        groups_dict, output_dir=comparison_output_dir,
+        test_results=roi_results['posthoc'],
+        normalize=True, roi_only=True,
+        roi_channels=roi_channels, roi_label=roi_label,
+        metrics_filter=['auc'],
+    )
 
 
 def main():

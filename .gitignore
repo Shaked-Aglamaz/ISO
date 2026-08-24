@@ -1,21 +1,20 @@
+# Virtual environment (rebuild from requirements.txt)
+eeg_clean/
+
 # Python cache
 __pycache__/
+*.py[cod]
+
+# Editor
 .vscode/
 
-# Virtual environment
-eeg_clean/
-code/debug/
+# MCP config with machine-local paths
+.mcp.json
 
-# Document files
-*.docx
-*.pdf
-
-tmp/
-young_control/
-elderly_control/
-new_iso_results/
-new_elderly_results/
+# Analysis outputs (kept outside git - PNG-heavy, regenerable)
+results/
 logs/
-new_MCI_results/
-MCI_results/
-group_comparison_results/
+
+# Cohort overview cache (regenerated from Google Sheets MCP each run)
+overview/.demographics_cache.json
+overview/.exclusion_reasons_cache.json

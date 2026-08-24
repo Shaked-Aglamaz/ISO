@@ -13,8 +13,8 @@ import time
 import gc
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from config import BASE_DIR, FACE_ELECTRODES, NECK_ELECTRODES
-from utils import find_subject_fif_file, get_all_subjects
+from utils.config import BASE_DIR, FACE_ELECTRODES, NECK_ELECTRODES
+from utils.utils import find_subject_fif_file, get_all_subjects
 
 
 mne.set_log_level("error")
@@ -170,7 +170,7 @@ class SpindleAnalyzer:
             overlaps = (bad_segments[:, 0] < stage_end) & (bad_segments[:, 1] > stage_start)
             overlapping_bads = bad_segments[overlaps]
             self._extract_valid_segments(stage_start, stage_end, overlapping_bads)
-        
+
         print("")
         print(f"Found {len(self.n2_bouts)} valid {stage_names} bouts (>= {self.min_duration}s)")
 
@@ -340,14 +340,25 @@ class SpindleAnalyzer:
         
         Bout Splitting:
         5. Split into segments based on duration:
+           - 300 ≤ L < 600s: 1 segment (whole bout)
+           - 600 ≤ L < 900s: 1 segment (centered 600s)
+           - L ≥ 900s: Multiple 600s segments with 50% overlap
         
         Frequency Domain (per segment):
         6. Apply Hann taper
         7. Compute FFT power spectrum (0-0.1 Hz)
-        8. Average segments (if L ≥ 900s) → 1 spectrum per bout
+        8. Keep all segments independently (no averaging)
         
-        Normalization (per bout):
-        9. Divide by mean of bout spectrum (0-0.1 Hz)
+        Normalization (per segment):
+        9. Divide each segment by its mean power (0-0.1 Hz)
+        
+        Returns:
+        --------
+        bout_result : dict
+            Bout metadata (id, times, duration, n_segments)
+        normalized_spectra : list of np.ndarray
+            List of normalized spectra, one per segment
+            (longer bouts return more spectra)
         """
         # Step 1: Crop and filter to sigma band
         bout_raw = self.target_raw.copy().crop(tmin=bout_info.start_time, tmax=bout_info.end_time)
@@ -369,7 +380,7 @@ class SpindleAnalyzer:
         envelope_segments = self.split_bout_into_segments(amplitude_envelope, sfreq, bout_info.duration)
         bout_info.n_segments = len(envelope_segments)
         
-        # Steps 6-8: Process each segment
+        # Steps 6-8: Process each segment independently
         segment_spectra = []
         for segment in envelope_segments:
             # Step 6: Apply Hann taper to segment
@@ -379,12 +390,15 @@ class SpindleAnalyzer:
             power = self.compute_fft_power_spectrum(tapered_segment, min_freq=0, max_freq=0.1)
             segment_spectra.append(power)
         
-        # Step 8: Average segment spectra if multiple segments (L ≥ 900s)
-        bout_spectrum = np.mean(segment_spectra, axis=0) if len(envelope_segments) > 1 else segment_spectra[0]
-
-        # Step 9: Normalize by mean of bout spectrum (0-0.1 Hz)
-        bout_mean_power = np.mean(bout_spectrum)
-        normalized_spectrum = bout_spectrum / bout_mean_power
+        # Step 8: Keep all segments as independent spectra (no averaging)
+        # This gives more weight to longer bouts with more segments
+        
+        # Step 9: Normalize each segment by its mean power (0-0.1 Hz)
+        normalized_spectra = []
+        for spectrum in segment_spectra:
+            segment_mean_power = np.mean(spectrum)
+            normalized_spectrum = spectrum / segment_mean_power
+            normalized_spectra.append(normalized_spectrum)
         
         bout_result = {
             'bout_id': bout_info.id,
@@ -394,9 +408,13 @@ class SpindleAnalyzer:
             'n_segments': bout_info.n_segments
         }
         
-        self._save_bout_fft_data(self._common_freqs, normalized_spectrum, bout_info)
-        self.plot_bout_fft(self._common_freqs, normalized_spectrum, bout_info)
-        return bout_result, normalized_spectrum
+        # For plotting and saving, use the mean across segments (for visualization)
+        bout_spectrum_for_plot = np.mean(normalized_spectra, axis=0)
+        self._save_bout_fft_data(self._common_freqs, bout_spectrum_for_plot, bout_info)
+        self.plot_bout_fft(self._common_freqs, bout_spectrum_for_plot, bout_info)
+        
+        # Return all normalized spectra (not averaged)
+        return bout_result, normalized_spectra
 
     def _save_bout_fft_data(self, frequencies, power, bout_info):
         """Save bout FFT data to CSV (relative power)."""
@@ -430,7 +448,7 @@ class SpindleAnalyzer:
         if power_label is None:
             power_label = f'Relative Power ({self.target_channel})'
         
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(6, 8))
         
         # 1. Main power spectrum
         plt.plot(frequencies, power_data, color='#2E86AB', linewidth=2, label=power_label)
@@ -456,7 +474,15 @@ class SpindleAnalyzer:
             x2 = mu + sigma
             mask = (x_fit >= x1) & (x_fit <= x2)
             bandwidth_height = self.gaussian(x1, *self.fitted_params)
-            area = simpson(x=x_fit[mask], y=y_fit[mask])
+            # area = simpson(x=x_fit[mask], y=y_fit[mask])
+            y_at_orig_freqs = self.gaussian(frequencies, *self.fitted_params)
+
+            # 2. Mask the original frequencies
+            mask_orig = (frequencies >= x1) & (frequencies <= x2)
+
+            # 3. Use trapezoid on the coarse grid with unit spacing
+            matlab_match_auc = np.trapezoid(y_at_orig_freqs[mask_orig])
+
             
             # Plot Gaussian components in order
             plt.plot(x_fit, y_fit, '#A23B72', linewidth=2, alpha=0.8, 
@@ -465,7 +491,7 @@ class SpindleAnalyzer:
                     label=f'Peak: {peak_amplitude:.3f} AU')
             plt.hlines(bandwidth_height, x1, x2, colors="#F18F01", linewidth=2, label="Bandwidth")
             plt.fill_between(x_fit[mask], y_fit[mask], color='#A23B72', alpha=0.15, 
-                           label=f'±1σ Area (AUC={area:.3f})')
+                           label=f'±1σ Area (AUC={matlab_match_auc:.3f})')
         
         # 4. ISFS threshold line (if available and requested)
         if show_threshold and hasattr(self, 'isfs_threshold'):
@@ -525,21 +551,24 @@ class SpindleAnalyzer:
         bout_results = []
         for bout_info in self.n2_bouts:
             try:
-                result, power = self.analyze_single_bout(bout_info)
+                result, spectra_list = self.analyze_single_bout(bout_info)
                 if result is not None:
                     bout_results.append(result)
-                    self._all_power_spectra.append(power)
+                    # Add all segment spectra individually (not averaged)
+                    # This weights longer bouts more heavily in channel-level analysis
+                    self._all_power_spectra.extend(spectra_list)
             except Exception as e:
                 self.bout_errors[bout_info] = e
                 print(f"  ✗ {bout_info} analysis failed: {e}")
         
-        print(f"Completed analysis of {len(bout_results)}/{len(self.n2_bouts)} bouts")
+        total_segments = len(self._all_power_spectra)
+        print(f"Completed analysis of {len(bout_results)}/{len(self.n2_bouts)} bouts ({total_segments} total segments)")
         if bout_results:
             self.results_df = pd.DataFrame(bout_results)
         
         # Perform per-channel analysis: average, baseline correction, and Gaussian fitting
         if self._all_power_spectra:
-            # Step 1: Average across bouts
+            # Step 1: Average across all segments (from all bouts)
             frequencies, mean_power, std_power = self.compute_mean_spectral_power()
             
             if frequencies is not None:
@@ -557,12 +586,21 @@ class SpindleAnalyzer:
                 print("✗ Could not compute mean spectral power")
         
     def compute_mean_spectral_power(self):
-        """Compute mean spectral power over all bouts."""
+        """
+        Compute mean spectral power across all segments from all bouts.
+        
+        Note: Each bout contributes N segments where N depends on bout duration:
+        - Short bouts (300-600s): 1 segment
+        - Medium bouts (600-900s): 1 segment
+        - Long bouts (≥900s): Multiple segments
+        
+        This weighting scheme gives more representation to longer, stable bouts.
+        """
         if self._common_freqs is None or not self._all_power_spectra:
             print("No power spectra available. Run analyze_all_bouts() first.")
             return None, None, None
         
-        # Average directly across bouts (no interpolation needed)
+        # Average across all segments (not bouts - longer bouts contribute more)
         power_matrix = np.array(self._all_power_spectra)
         mean_power_spectrum = np.mean(power_matrix, axis=0)
         std_power_spectrum = np.std(power_matrix, axis=0)
@@ -598,8 +636,19 @@ class SpindleAnalyzer:
             y_fit = self.gaussian(x_fit, *fitted_params)
             x1 = peak_frequency - bandwidth_sigma
             x2 = peak_frequency + bandwidth_sigma
-            mask = (x_fit >= x1) & (x_fit <= x2)
-            actual_auc = simpson(x=x_fit[mask], y=y_fit[mask])
+            # mask = (x_fit >= x1) & (x_fit <= x2)
+            # actual_auc = simpson(x=x_fit[mask], y=y_fit[mask])
+
+            # 1. Get the Gaussian values at the ORIGINAL data frequencies (not the 500-point fit)
+            y_at_orig_freqs = self.gaussian(frequencies, *fitted_params)
+
+            # 2. Mask the original frequencies
+            mask_orig = (frequencies >= x1) & (frequencies <= x2)
+
+            # 3. Use trapezoid on the coarse grid with unit spacing
+            matlab_match_auc = np.trapezoid(y_at_orig_freqs[mask_orig])
+            # Result will be back in the ~5-15 range
+            # matlab_style_auc = np.trapezoid(y_fit[mask])
 
             # ISFS detection condition
             gaussian_std = np.std(y_fit)
@@ -619,7 +668,7 @@ class SpindleAnalyzer:
                 'channel': self.target_channel,
                 'peak_frequency': peak_frequency,
                 'bandwidth': 2 * bandwidth_sigma,  # Convert sigma to full bandwidth
-                'auc': actual_auc,  # Actual AUC of ±1σ area under Gaussian curve
+                'auc': matlab_match_auc,  # Actual AUC of ±1σ area under Gaussian curve
                 'peak_amplitude': peak_amplitude,
                 'bandwidth_sigma': bandwidth_sigma
             }
@@ -755,6 +804,18 @@ class SpindleAnalyzer:
         summary_lines.append(f"Average bout duration: {self.results_df['duration'].mean():.1f}s (±{self.results_df['duration'].std():.1f})")
         summary_lines.append(f"Total analyzed time: {self.results_df['duration'].sum():.1f}s")
         
+        # Add segment statistics
+        total_segments = self.results_df['n_segments'].sum()
+        summary_lines.append("")
+        summary_lines.append("Segment Statistics (for weighting):")
+        summary_lines.append("-" * 60)
+        summary_lines.append(f"Total segments: {int(total_segments)}")
+        summary_lines.append(f"Average segments per bout: {self.results_df['n_segments'].mean():.1f}")
+        summary_lines.append(f"Bouts with 1 segment: {(self.results_df['n_segments'] == 1).sum()}")
+        summary_lines.append(f"Bouts with >1 segment: {(self.results_df['n_segments'] > 1).sum()}")
+        summary_lines.append("Note: Each segment contributes equally to channel-level mean,")
+        summary_lines.append("      giving more weight to longer, stable bouts.")
+        
         # Add channel-level results if available
         if hasattr(self, 'channel_result') and self.channel_result is not None:
             summary_lines.append("")
@@ -791,7 +852,7 @@ class SpindleAnalyzer:
         with open(summary_path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(summary_lines))
 
-def analyze_all_channels(sub, raw_path, include_n3=False, subject_dir=None, max_workers=None, annotations_path=None):
+def analyze_all_channels(sub, raw_path, include_n3=False, subject_dir=None, max_workers=None, annotations_path=None, low_freq=13, high_freq=16):
     raw = mne.io.read_raw(raw_path, preload=False)
     excluded_channels = set(FACE_ELECTRODES + NECK_ELECTRODES)
     valid_channels = [
@@ -812,7 +873,7 @@ def analyze_all_channels(sub, raw_path, include_n3=False, subject_dir=None, max_
         future_to_channel = {}
         for channel in valid_channels:
             output_dir = f"{subject_dir}/{sub}_{channel}_output" if subject_dir else None
-            future = executor.submit(run_channel_analysis, sub, raw_path, channel, output_dir, include_n3, annotations_path)
+            future = executor.submit(run_channel_analysis, sub, raw_path, channel, output_dir, include_n3, annotations_path, low_freq, high_freq)
             future_to_channel[future] = channel
         
         # Collect results as they complete
@@ -832,14 +893,14 @@ def analyze_all_channels(sub, raw_path, include_n3=False, subject_dir=None, max_
     save_multi_channel_summary(sub, channel_results, all_bout_results, subject_dir, total_channels)
 
 
-def run_channel_analysis(subject_id, raw_path, channel, output_dir=None, include_n3=False, annotations_path=None):
+def run_channel_analysis(subject_id, raw_path, channel, output_dir=None, include_n3=False, annotations_path=None, low_freq=13, high_freq=16):
     """Run complete analysis pipeline for a single channel."""
     # Format annotations path with subject_id if template provided
     if isinstance(annotations_path, str) and '{subject_id}' in annotations_path:
         annotations_path = Path(annotations_path.format(subject_id=subject_id))
     else:
         annotations_path = Path(annotations_path)
-    analyzer = SpindleAnalyzer(subject_id, raw_path, low_freq=13, high_freq=16, target_channel=channel,
+    analyzer = SpindleAnalyzer(subject_id, raw_path, low_freq=low_freq, high_freq=high_freq, target_channel=channel,
                                output_dir=output_dir, include_n3=include_n3, annotations_path=annotations_path)
     analyzer.analyze_all_bouts()
     analyzer.get_summary()
@@ -938,14 +999,14 @@ def save_focused_analysis_results(analyzer, subject_id, channel_name, output_dir
         print(f"✓ Saved {len(bout_df)} individual bout results to {bout_file}")
 
 
-def process_all_subjects(main_dir, include_n3=False, max_workers=None, annotations_path=None):
+def process_all_subjects(main_dir, include_n3=False, max_workers=None, annotations_path=None, low_freq=13, high_freq=16):
     """Process all subjects in the control_clean directory with configurable parallelization."""
     start_time = time.time()
-    subject_dirs = get_all_subjects(main_dir)
-    if not subject_dirs:
-        return
+    # subject_dirs = get_all_subjects(main_dir)
+    # if not subject_dirs:
+    #     return
 
-    # subject_dirs = ["EL3016"]
+    subject_dirs = ["EL3002"]
     processed_subjects, failed_subjects = [], []
     for i, sub in enumerate(subject_dirs):
         subject_start_time = time.time()
@@ -954,12 +1015,12 @@ def process_all_subjects(main_dir, include_n3=False, max_workers=None, annotatio
         print(f"{'='*80}")
         
         try:
-            sub_dir = f"{main_dir}/{sub}/saved_raw/CleaningPipe/"
+            sub_dir = f"{main_dir}/{sub}/"
             raw_path = find_subject_fif_file(sub_dir)
             if raw_path:
                 stages = "N2N3" if include_n3 else "N2"
-                subject_dir = f"{sub}_{stages}_split_bouts"
-                analyze_all_channels(sub, raw_path, include_n3, subject_dir, max_workers, annotations_path)
+                subject_dir = f"young_control/results/{sub}_{stages}_split_bouts"
+                analyze_all_channels(sub, raw_path, include_n3, subject_dir, max_workers, annotations_path, low_freq, high_freq)
                 subject_duration = time.time() - subject_start_time
                 processed_subjects.append(sub)
                 print(f"✓ Successfully processed subject {sub} in {subject_duration/60:.2f} minutes")
@@ -995,7 +1056,7 @@ def process_all_subjects(main_dir, include_n3=False, max_workers=None, annotatio
     print(f"{'='*80}")
 
 
-def focused_electrode_analysis(subject, subject_dir, electrode, output_dir, include_n3=False, annotations_path=None):
+def focused_electrode_analysis(subject, subject_dir, electrode, output_dir, include_n3=False, annotations_path=None, low_freq=13, high_freq=16):
     """Perform focused analysis on single electrode of single subject."""
     start_time = time.time()
     print(f"\nFOCUSED ANALYSIS: Subject {subject}, Electrode {electrode}")
@@ -1003,7 +1064,7 @@ def focused_electrode_analysis(subject, subject_dir, electrode, output_dir, incl
         raw_path = find_subject_fif_file(subject_dir)
         if raw_path:
             print(f"{'='*60}")
-            analyzer = run_channel_analysis(subject, raw_path, electrode, output_dir, include_n3, annotations_path)
+            analyzer = run_channel_analysis(subject, raw_path, electrode, output_dir, include_n3, annotations_path, low_freq, high_freq)
             save_focused_analysis_results(analyzer, subject, electrode, output_dir)
 
             end_time = time.time()
@@ -1025,21 +1086,39 @@ def main():
     """Main function to run spectral analysis."""
     
     # OPTION 1: Process all subjects with parallel processing (recommended)
-    main_dir = f"{BASE_DIR}/elderly_control/"
-    
+    group = "control_clean"
+    main_dir = f"{BASE_DIR}/{group}/"
     # Option A: Template with {subject_id} placeholder (recommended for multiple subjects):
-    annotations_path = f"{BASE_DIR}/elderly_control/{{subject_id}}/{{subject_id}}_cleaned_hypno_annotations.txt"
+    annotations_path = f"{BASE_DIR}/{group}/{{subject_id}}/{{subject_id}}_cleaned_annotations.txt"
     
     # Option B: Specific path (same file for all subjects):
     # annotations_path = "path/to/specific/annotations.txt"
     
-    # process_all_subjects(main_dir, include_n3=True, max_workers=3, annotations_path=annotations_path)
+    # process_all_subjects(main_dir, include_n3=True, max_workers=3, annotations_path=annotations_path, low_freq=13, high_freq=16)
 
-    # OPTION 2: Focused single electrode analysis (always sequential)
-    subject = "RD43"
-    subject_dir = f"{BASE_DIR}/control_clean/{subject}/"
-    focused_electrode_analysis(subject, subject_dir, electrode="E24", output_dir="tmp/sanity_check", 
-                               include_n3=True, annotations_path=annotations_path)
+    # OPTION 2: Focused analysis on ROI channels from CSV (filtered subjects)
+    subjects = ['EL3002'] #, 'EL3003', 'EL3004', 'NE36', 'RD43']
+    roi_csv_path = "young_control/topo/roi_channels_per_subject.csv"
+    roi_df = pd.read_csv(roi_csv_path)
+    roi_df = roi_df[roi_df['subject_id'].isin(subjects)]
+    for _, row in roi_df.iterrows():
+        subject = row['subject_id']
+        # channels = [row['channel1'], row['channel2'], row['channel3']]
+        channels = ["E2"]
+        
+        print(f"\n{'='*80}")
+        print(f"PROCESSING SUBJECT: {subject}")
+        print(f"ROI Channels: {', '.join(channels)}")
+        print(f"{'='*80}")
+        
+        subject_dir = f"{BASE_DIR}/{group}/{subject}/"
+        for chan in channels:
+            output_dir = f"young_control/new_results/{subject}_N2_split_bouts/{subject}_{chan}_output_AUC"
+            try:
+                focused_electrode_analysis(subject, subject_dir, electrode=chan, output_dir=output_dir, 
+                                        include_n3=False, annotations_path=annotations_path, low_freq=13, high_freq=16)
+            except Exception as e:
+                print(f"✗ Failed to analyze {subject} - {chan}: {e}")
 
 
 if __name__ == "__main__":

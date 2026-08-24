@@ -14,8 +14,14 @@ from new_iso.visualization import plot_bout_fft, plot_mean_spectrum_with_fit, pl
 from utils.utils import find_subject_fif_file
 
 
-frequency_steps = np.arange(13, 16.2, 0.2) 
-source_folder = Path('I:/Shaked/ISO_data/MCI_clean/a_the_rest')
+frequency_steps = np.arange(13, 16.2, 0.2)
+# Full-cohort re-run (|sigma| fix) -> results/sigma_fix_{group}; does NOT override existing result dirs.
+GROUPS = {
+    'YA':  Path('I:/Shaked/ISO_data/control_clean'),
+    'HE':  Path('I:/Shaked/ISO_data/elderly_control_clean'),
+    'MCI': Path('I:/Shaked/ISO_data/MCI_clean'),
+}
+SKIP_DIRS = {'a_excluded', 'a_the_rest', 'dashboards', 'excluded', 'excluded_AD'}
 
 
 def save_bouts_info(bout_metadata, s_freq, subject_id, output_dir):
@@ -155,15 +161,17 @@ def analyze_channel(channel_name, subject_id, output_dir, channel_data, s_freq, 
     return pf, bw, auc, pp, plot_data['failure_reason']
 
 
-def main():
-    errors = {}
-    for subject_path in [f for f in source_folder.iterdir() if f.is_dir()]:
+def run_group(source_folder, RESULTS_DIR, errors, subjects_filter=None):
+    group_tag = source_folder.name
+    for subject_path in [f for f in source_folder.iterdir() if f.is_dir() and f.name not in SKIP_DIRS]:
+        if subjects_filter and subject_path.name not in subjects_filter:
+            continue
         try:
+            subject_id = subject_path.name
             fif_path = find_subject_fif_file(subject_path)
             if not fif_path:
                 continue
-                
-            subject_id = subject_path.name
+
             raw = mne.io.read_raw_fif(fif_path, preload=True)
             s_freq = raw.info['sfreq']
             
@@ -178,7 +186,7 @@ def main():
             n_bouts = bout_metadata.shape[1]
             pf_all_channels, bw_all_channels, auc_all_channels, pp_all_channels = [], [], [], []
             failure_reasons = []  # Track failure reasons for all channels
-            subject_output_dir = Path(f"results/new_MCI_results/{subject_id}")
+            subject_output_dir = Path(f"{RESULTS_DIR}/{subject_id}")
             subject_output_dir.mkdir(parents=True, exist_ok=True)
             
             save_bouts_info(bout_metadata, s_freq, subject_id, subject_output_dir)
@@ -215,14 +223,27 @@ def main():
             print(f"Finished processing Subject: {subject_id}\n")
         
         except Exception as e:
-            errors[subject_id] = str(e)
-        
+            errors[f"{group_tag}/{subject_id}"] = str(e)
+
         finally:
             gc.collect()
 
+
+def main():
+    errors = {}
+    # Newly-added subjects -> their group's sigma_fix dir (adds subject folders, others untouched).
+    runs = [
+        ('HE',  GROUPS['HE'],  {'DS6'}),
+        ('MCI', GROUPS['MCI'], {'MR5'}),
+    ]
+    for group, group_folder, subjects_filter in runs:
+        results_dir = f"results/sigma_fix_{group}"
+        print(f"\n{'#'*70}\n# GROUP {group}: {group_folder}  ->  {results_dir}  {sorted(subjects_filter)}\n{'#'*70}\n")
+        run_group(group_folder, results_dir, errors, subjects_filter=subjects_filter)
+
     print(f"Number of errors: {len(errors)}\n")
-    for subject_id, error_msg in errors.items():
-        print(f"{subject_id}: {error_msg}\n")
+    for key, error_msg in errors.items():
+        print(f"{key}: {error_msg}\n")
 
 if __name__ == "__main__":
     main()

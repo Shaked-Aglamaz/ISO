@@ -1,0 +1,1040 @@
+% library.bib - Master's thesis references (ISFS during NREM2 sleep)
+% Encoding: UTF-8
+% Compile with biber/biblatex to preserve diacritics (e.g., André).
+
+@article{dimitriades2024isfs,
+  author  = {Dimitriades, Maria E. and Osorio-Forero, Alejandro and Fattinger, Sara and von Arx, Simone and Kurth, Salome and Pugin, Fiona and Jaramillo, Valeria and Volk, Carina and Krugliakova, Elena and Furrer, Melanie and Leach, Sven and Achermann, Peter and Gerstenberg, Miriam and Huber, Reto},
+  title   = {The Infraslow Fluctuation of Sigma Power During Sleep: Links to Markers of Arousal and Memory Reactivation Across Development},
+  journal = {bioRxiv},
+  year    = {2024},
+  note    = {Preprint, posted 7 November 2024},
+  doi     = {10.1101/2024.11.06.620875},
+}
+% notes: Central methods reference - the ISFS pipeline (Gabor-Morlet wavelet, amplitude-envelope FFT, Gaussian fit) is duplicated from this paper. Cite throughout Methods and as primary motivation in Introduction.
+
+@article{lazar2019infraslow,
+  author  = {Lázár, Zsófia I. and Dijk, Derk-Jan and Lázár, Alpár S.},
+  title   = {Infraslow oscillations in human sleep spindle activity},
+  journal = {Journal of Neuroscience Methods},
+  volume  = {316},
+  pages   = {22--34},
+  year    = {2019},
+  doi     = {10.1016/j.jneumeth.2018.12.002},
+}
+% notes: First detailed human demonstration that sleep-spindle / sigma activity carries an infraslow (~0.02 Hz, <20 mHz) oscillation, most prominent in fast spindles over centro-parieto-occipital regions. Cite in Introduction as the human ISO/ISFS demonstration that precedes Dimitriades 2024's full parameterization.
+
+@article{grollero2026iso,
+  author  = {Grollero, Demetrio and Gabb, Victoria and Blackman, Jonathan and de Vivo, Luisa and Coulthard, Elisabeth and Bellesi, Michele},
+  title   = {Are Infraslow Oscillations the Missing Link Between Sleep and Alzheimer's?},
+  journal = {bioRxiv},
+  year    = {2026},
+  note    = {Preprint, posted 13 April 2026},
+  doi     = {10.64898/2026.04.09.717425},
+}
+% notes: Concurrent work (postdates this thesis's analysis) proposing ISO integrity as the mechanistic link between sleep, locus coeruleus / glymphatic dysfunction, and AD - cite in Discussion as convergent independent evidence for the ISFS-AD hypothesis tested here.
+
+@article{zhang2022alzheimerreview,
+  author  = {Zhang, Ye and Ren, Rong and Yang, Linghui and Zhang, Haipeng and Shi, Yuan and Okhravi, Hamid R. and Vitiello, Michael V. and Sanford, Larry D. and Tang, Xiangdong},
+  title   = {Sleep in {Alzheimer's} Disease: A Systematic Review and Meta-Analysis of Polysomnographic Findings},
+  journal = {Translational Psychiatry},
+  volume  = {12},
+  pages   = {136},
+  year    = {2022},
+  doi     = {10.1038/s41398-022-01897-y},
+}
+% notes: Background review establishing PSG-level sleep changes (reduced SWS/REM, altered spindles) in AD versus controls - cite in Introduction to motivate why MCI sleep EEG is worth probing for ISFS-level biomarkers.
+
+@article{andre2025remslowing,
+  author  = {André, Claire and Bédard, Marc-André and Daneault, Véronique and Wickens, Rebekah and Soucy, Jean-Paul and Lorrain, Dominique and Bastien, Célyne and Hudon, Carol and Marchi, Nicola Andrea and Montplaisir, Jacques and Gosselin, Nadia and Carrier, Julie},
+  title   = {{REM} Sleep {EEG} Slowing Reflects Brain Cholinergic Denervation in Aging and {Mild Cognitive Impairment}},
+  journal = {medRxiv},
+  year    = {2025},
+  note    = {Preprint, posted 29 April 2025. Supplementary material included.},
+  doi     = {10.1101/2025.04.28.25326545},
+}
+% notes: Provides in-vivo PET evidence that REM-EEG slowing tracks cortical cholinergic denervation in MCI - cite in Discussion as parallel sleep-EEG biomarker of cholinergic decline, complementing the NREM2 ISFS biomarker investigated here. Supplementary PDF is part of the same preprint.
+
+@article{schmitz2018cholinergic,
+  author  = {Schmitz, Taylor W. and Mur, Marieke and Aghourian, Meghmik and Bedard, Marc-Andre and Spreng, R. Nathan},
+  title   = {Longitudinal {Alzheimer's} Degeneration Reflects the Spatial Topography of Cholinergic Basal Forebrain Projections},
+  journal = {Cell Reports},
+  volume  = {24},
+  number  = {1},
+  pages   = {38--46},
+  year    = {2018},
+  doi     = {10.1016/j.celrep.2018.06.001},
+}
+% notes: Anatomical/PET basis for the cholinergic-degeneration topography in early AD - cite in Introduction/Discussion to ground the link between basal-forebrain cholinergic loss and the cortical regions where we expect ISFS topographic changes in MCI.
+
+@article{chen2025spindletiming,
+  author  = {Chen, Shuqiang and He, Mingjian and Brown, Ritchie E. and Eden, Uri T. and Prerau, Michael J.},
+  title   = {Individualized Temporal Patterns Drive Human Sleep Spindle Timing},
+  journal = {Proceedings of the National Academy of Sciences},
+  volume  = {122},
+  number  = {2},
+  pages   = {e2405276121},
+  year    = {2025},
+  doi     = {10.1073/pnas.2405276121},
+}
+% notes: Large-N point-process model showing that ~50 s infraslow activity contributes to but does not dominate spindle timing; relativizes the functional weight of the ISFS rhythm relative to short-term refractoriness. Cite in Discussion when interpreting ISFS amplitude/AUC.
+
+@article{niethard2023spindleaging,
+  author  = {Niethard, Niels},
+  title   = {Aging Impairs the Temporal Clustering of Sleep Spindles},
+  journal = {SLEEP},
+  volume  = {46},
+  number  = {5},
+  pages   = {zsad011},
+  year    = {2023},
+  doi     = {10.1093/sleep/zsad011},
+  note    = {Editorial / Commentary on Champetier et al. 2023},
+}
+% notes: Editorial framing the Champetier finding that fast-spindle clustering breaks down with age - cite in Introduction as a concise statement of the aging-related disruption of infraslow spindle organization that motivates the elderly-vs-MCI comparison here.
+
+@article{champetier2023spindlememory,
+  author  = {Champetier, Pierre and Bertran, Françoise and Rauchs, Géraldine and André, Claire and Weber, Frederik D. and Rehel, Stéphane and Ourry, Valentin and Laniepce, Alice and Lutz, Antoine and Cabé, Nicolas and Pitel, Anne-Lise and Poisnel, Géraldine and de la Sayette, Vincent and Vivien, Denis and Chételat, Gaël},
+  title   = {Age-Related Changes in Fast Spindle Clustering During Non-Rapid Eye Movement Sleep and Their Relevance for Memory Consolidation},
+  journal = {SLEEP},
+  volume  = {46},
+  number  = {5},
+  pages   = {zsac282},
+  year    = {2023},
+  doi     = {10.1093/sleep/zsac282},
+}
+% notes: Direct empirical demonstration that 0.02 Hz sigma fluctuation (i.e., ISFS) and downstream spindle clustering degrade non-linearly with age in 147 elderly vs. 32 younger adults, and that cluster size correlates with memory consolidation. Cite as the primary aging-and-ISFS reference in Introduction and Discussion.
+
+% =====================================================================
+% Rodent ISO / infraslow sigma (mechanistic background for human ISFS)
+% =====================================================================
+
+@article{lecci2017infraslow,
+  author  = {Lecci, Sandro and Fernandez, Laura M. J. and Weber, Frederik D. and Cardis, Romain and Chatton, Jean-Yves and Born, Jan and Lüthi, Anita},
+  title   = {Coordinated infraslow neural and cardiac oscillations mark fragility and offline periods in mammalian sleep},
+  journal = {Science Advances},
+  volume  = {3},
+  number  = {2},
+  pages   = {e1602026},
+  year    = {2017},
+  doi     = {10.1126/sciadv.1602026},
+}
+% notes: Foundational rodent paper defining the ~0.02 Hz infraslow fluctuation of sigma power as an alternation between fragile (arousal-prone) and offline periods of NREM sleep, with a human-EEG validation. Cite in Introduction as the mechanistic origin of the ISFS rhythm this thesis quantifies in humans.
+
+@article{osorioforero2021noradrenergic,
+  author  = {Osorio-Forero, Alejandro and Cardis, Romain and Vantomme, Gil and Guillaume-Gentil, Aurélie and Katsioudi, Georgia and Devenoges, Christiane and Fernandez, Laura M. J. and Lüthi, Anita},
+  title   = {Noradrenergic circuit control of non-{REM} sleep substates},
+  journal = {Current Biology},
+  volume  = {31},
+  number  = {22},
+  pages   = {5009--5023},
+  year    = {2021},
+  doi     = {10.1016/j.cub.2021.09.041},
+}
+% notes: Shows the locus coeruleus / noradrenergic system clocks the infraslow sigma fluctuation and gates NREM substates in mice. Cite in Introduction as the mechanistic (LC-noradrenergic) driver hypothesized to underlie human ISFS, and in Discussion when interpreting aging-related ISFS changes against cholinergic/noradrenergic decline.
+
+@article{kjaerby2022norepinephrine,
+  author  = {Kjaerby, Celia and Andersen, Mie and Hauglund, Natalie and Untiet, Verena and Dall, Camilla and Sigurdsson, Björn and Ding, Fengfei and Feng, Jiesi and Li, Yulong and Weikop, Pia and Hirase, Hajime and Nedergaard, Maiken},
+  title   = {Memory-enhancing properties of sleep depend on the oscillatory amplitude of norepinephrine},
+  journal = {Nature Neuroscience},
+  volume  = {25},
+  number  = {8},
+  pages   = {1059--1070},
+  year    = {2022},
+  doi     = {10.1038/s41593-022-01102-9},
+}
+% notes: Links infraslow noradrenergic oscillations to spindle dynamics and sleep-dependent memory in mice. Cite alongside osorioforero2021noradrenergic in Introduction/Discussion to ground the noradrenergic-amplitude account of infraslow sigma and its functional (memory) relevance.
+
+@article{cardis2021corticoautonomic,
+  author  = {Cardis, Romain and Lecci, Sandro and Fernandez, Laura M. J. and Osorio-Forero, Alejandro and Chu Sin Chung, Paul and Fulda, Stephany and Decosterd, Isabelle and Lüthi, Anita},
+  title   = {Cortico-autonomic local arousals and heightened somatosensory arousability during {NREMS} of mice in neuropathic pain},
+  journal = {eLife},
+  volume  = {10},
+  pages   = {e65835},
+  year    = {2021},
+  doi     = {10.7554/eLife.65835},
+}
+% notes: Extends the rodent ISO framework by coupling infraslow sigma dynamics to cortico-autonomic arousability and fragile-period physiology. Cite in Introduction/Discussion as evidence that the infraslow sigma rhythm indexes arousability, supporting its interpretation as a fragility marker.
+
+@article{fernandez2020spindles,
+  author  = {Fernandez, Laura M. J. and Lüthi, Anita},
+  title   = {Sleep spindles: mechanisms and functions},
+  journal = {Physiological Reviews},
+  volume  = {100},
+  number  = {2},
+  pages   = {805--868},
+  year    = {2020},
+  doi     = {10.1152/physrev.00042.2018},
+}
+% notes: Comprehensive review of thalamocortical spindle generation and their infraslow organization. Cite in Introduction/Methods as the authoritative background on spindle (sigma) physiology that the ISFS envelope is built from.
+
+% =====================================================================
+% Human NREM2 sigma envelope / spindle dynamics
+% =====================================================================
+
+@article{boutin2020spindleframework,
+  author  = {Boutin, Arnaud and Doyon, Julien},
+  title   = {A sleep spindle framework for motor memory consolidation},
+  journal = {Philosophical Transactions of the Royal Society B: Biological Sciences},
+  volume  = {375},
+  number  = {1799},
+  pages   = {20190232},
+  year    = {2020},
+  doi     = {10.1098/rstb.2019.0232},
+}
+% notes: Proposes the ~50 s "spindle train" clustering framework (source of the 6 s inter-spindle interval used by champetier2023spindlememory). Cite in Introduction when introducing the infraslow temporal organization of spindles, and in Methods/Discussion for the clustering rationale.
+
+@article{andrillon2011intracranial,
+  author  = {Andrillon, Thomas and Nir, Yuval and Staba, Richard J. and Ferrarelli, Fabio and Cirelli, Chiara and Tononi, Giulio and Fried, Itzhak},
+  title   = {Sleep spindles in humans: insights from intracranial {EEG} and unit recordings},
+  journal = {Journal of Neuroscience},
+  volume  = {31},
+  number  = {49},
+  pages   = {17821--17834},
+  year    = {2011},
+  doi     = {10.1523/JNEUROSCI.2604-11.2011},
+}
+% notes: Intracranial-EEG and unit characterization of human spindle physiology (local, ~0.8 s events with characteristic topography). Cite in Introduction for the physiological basis of the sigma signal; lab-lineage citation (Nir).
+
+@article{purcell2017characterizing,
+  author  = {Purcell, Sean M. and Manoach, Dara S. and Demanuele, Chiara and Cade, Brendan E. and Mariani, Stefania and Cox, Robert and Panagiotaropoulou, Georgia and Saxena, Richa and Pan, Jing Qi and Smoller, Jordan W. and Redline, Susan and Stickgold, Robert},
+  title   = {Characterizing sleep spindles in 11,630 individuals from the {National Sleep Research Resource}},
+  journal = {Nature Communications},
+  volume  = {8},
+  pages   = {15930},
+  year    = {2017},
+  doi     = {10.1038/ncomms15930},
+}
+% notes: Large-N normative description of adult sleep-spindle properties and topography. Cite in Introduction as the reference for "typical" spindle density/topography against which group ISFS differences are framed.
+
+@article{molle2011fastslow,
+  author  = {Mölle, Matthias and Bergmann, Til O. and Marshall, Lisa and Born, Jan},
+  title   = {Fast and Slow Spindles during the Sleep Slow Oscillation: Disparate Coalescence and Engagement in Memory Processing},
+  journal = {SLEEP},
+  volume  = {34},
+  number  = {10},
+  pages   = {1411--1421},
+  year    = {2011},
+  doi     = {10.5665/SLEEP.1290},
+}
+% notes: Canonical, heavily-cited reference for the slow (frontal, ~11-13 Hz) vs fast (centroparietal, ~13-16 Hz) spindle distinction and their coupling to the slow oscillation. Cite in Introduction to justify the focus on the fast-spindle sigma band (13-16 Hz) used in the ISFS analysis.
+
+% =====================================================================
+% MCI / aging EEG biomarkers (parallel context, not ISFS-MCI proof)
+% =====================================================================
+
+@article{gorgoni2016parietal,
+  author  = {Gorgoni, Maurizio and Lauri, Giulia and Truglia, Ilaria and Cordone, Susanna and Sarasso, Simone and Scarpelli, Serena and Mangiaruga, Anastasia and D'Atri, Aurora and Tempesta, Daniela and Ferrara, Michele and Marra, Camillo and Rossini, Paolo Maria and De Gennaro, Luigi},
+  title   = {Parietal Fast Sleep Spindle Density Decrease in {Alzheimer's} Disease and Amnesic {Mild Cognitive Impairment}},
+  journal = {Neural Plasticity},
+  volume  = {2016},
+  pages   = {8376108},
+  year    = {2016},
+  doi     = {10.1155/2016/8376108},
+}
+% notes: The AD/MCI spindle paper most parallel to this thesis: reports reduced parietal fast-spindle density in AD and amnesic MCI. Cite in Introduction as prior sleep-EEG evidence in MCI — context for, not proof of, an ISFS-level MCI biomarker (keep the AGING-not-MCI framing honest).
+
+@article{mander2017aging,
+  author  = {Mander, Bryce A. and Winer, Joseph R. and Walker, Matthew P.},
+  title   = {Sleep and Human Aging},
+  journal = {Neuron},
+  volume  = {94},
+  number  = {1},
+  pages   = {19--36},
+  year    = {2017},
+  doi     = {10.1016/j.neuron.2017.02.004},
+}
+% notes: Standard review of how sleep architecture and sleep-EEG features change with healthy aging. Cite in Introduction to frame the elderly-vs-young comparison and motivate aging as the primary axis of ISFS change.
+
+@article{helfrich2018uncoupled,
+  author  = {Helfrich, Randolph F. and Mander, Bryce A. and Jagust, William J. and Knight, Robert T. and Walker, Matthew P.},
+  title   = {Old Brains Come Uncoupled in Sleep: Slow Wave--Spindle Synchrony, Brain Atrophy, and Forgetting},
+  journal = {Neuron},
+  volume  = {97},
+  number  = {1},
+  pages   = {221--230},
+  year    = {2018},
+  doi     = {10.1016/j.neuron.2017.11.020},
+}
+% notes: Shows slow-wave/spindle coupling degrades with age, tracking atrophy and forgetting. Cite in Introduction/Discussion as the aging-related breakdown of spindle timing that complements the ISFS-with-aging story.
+
+@article{taillard2019nonrem,
+  author  = {Taillard, Jacques and Sagaspe, Patricia and Berthomier, Christian and Brandewinder, Marie and Amieva, Hélène and Dartigues, Jean-François and Rainfray, Muriel and Harston, Sandrine and Micoulaud-Franchi, Jean-Arthur and Philip, Pierre},
+  title   = {Non-{REM} Sleep Characteristics Predict Early Cognitive Impairment in an Aging Population},
+  journal = {Frontiers in Neurology},
+  volume  = {10},
+  pages   = {197},
+  year    = {2019},
+  doi     = {10.3389/fneur.2019.00197},
+}
+% notes: NREM sleep-EEG features predict early cognitive decline in aging. Cite in Introduction as motivation that NREM2 markers carry cognitive-prognostic signal, supporting probing ISFS in this population.
+
+@article{liu2020spindlebiomarkers,
+  author  = {Liu, Shunjie and Pan, Junhao and Tang, Ke and Lei, Qingfeng and He, Lu and Meng, Yangyang and Cai, Xiaodong and Li, Zhong},
+  title   = {Sleep spindles, {K}-complexes, limb movements and sleep stage proportions may be biomarkers for amnestic mild cognitive impairment and {Alzheimer's} disease},
+  journal = {Sleep and Breathing},
+  volume  = {24},
+  number  = {2},
+  pages   = {637--651},
+  year    = {2020},
+  doi     = {10.1007/s11325-019-01970-9},
+}
+% notes: MCI-specific candidate sleep-EEG biomarkers (spindles, K-complexes, stage proportions). Cite in Introduction as prior MCI biomarker work; frame as parallel context for the ISFS measure, not as established ISFS-MCI evidence.
+
+% =====================================================================
+% Methods: tools actually used in the pipeline
+% =====================================================================
+
+@article{tallonbaudry1997gamma,
+  author  = {Tallon-Baudry, Catherine and Bertrand, Olivier and Delpuech, Claude and Pernier, Jacques},
+  title   = {Oscillatory gamma-band (30--70 {Hz}) activity induced by a visual search task in humans},
+  journal = {Journal of Neuroscience},
+  volume  = {17},
+  number  = {2},
+  pages   = {722--734},
+  year    = {1997},
+  doi     = {10.1523/JNEUROSCI.17-02-00722.1997},
+}
+% notes: Classic reference for Morlet-wavelet time-frequency analysis in EEG (number-of-cycles convention). Cite in Methods for the Gabor-Morlet wavelet used to extract the sigma amplitude envelope.
+
+@article{maris2007nonparametric,
+  author  = {Maris, Eric and Oostenveld, Robert},
+  title   = {Nonparametric statistical testing of {EEG}- and {MEG}-data},
+  journal = {Journal of Neuroscience Methods},
+  volume  = {164},
+  number  = {1},
+  pages   = {177--190},
+  year    = {2007},
+  doi     = {10.1016/j.jneumeth.2007.03.024},
+}
+% notes: Canonical citation for cluster-based permutation testing. Cite in Methods for the spatiotemporal cluster-permutation between-group comparisons (step5).
+
+@article{gramfort2013mnepython,
+  author  = {Gramfort, Alexandre and Luessi, Martin and Larson, Eric and Engemann, Denis A. and Strohmeier, Daniel and Brodbeck, Christian and Goj, Roman and Jas, Mainak and Brooks, Teon and Parkkonen, Lauri and Hämäläinen, Matti},
+  title   = {{MEG} and {EEG} data analysis with {MNE-Python}},
+  journal = {Frontiers in Neuroscience},
+  volume  = {7},
+  pages   = {267},
+  year    = {2013},
+  doi     = {10.3389/fnins.2013.00267},
+}
+% notes: Required citation for MNE-Python, used throughout preprocessing, the cluster-permutation tests, and topographic plotting. Cite in Methods.
+
+@article{vallat2021yasa,
+  author  = {Vallat, Raphael and Walker, Matthew P.},
+  title   = {An open-source, high-performance tool for automated sleep staging},
+  journal = {eLife},
+  volume  = {10},
+  pages   = {e70092},
+  year    = {2021},
+  doi     = {10.7554/eLife.70092},
+}
+% notes: Required citation for YASA, used in the sigma-power analysis (step2). Cite in Methods.
+
+@article{visbrain,
+  author  = {Combrisson, Etienne and Vallat, Raphael and O'Reilly, Christian and Jas, Mainak and Pascarella, Annalisa and Saive, Anne-Lise and Thiery, Thomas and Meunier, David and Altukhov, Dmitrii and Lajnef, Tarek and Ruby, Perrine and Guillot, Aymeric and Jerbi, Karim},
+  title   = {{Visbrain}: A Multi-Purpose {GPU}-Accelerated Open-Source Suite for Multimodal Brain Data Visualization},
+  journal = {Frontiers in Neuroinformatics},
+  volume  = {13},
+  pages   = {14},
+  year    = {2019},
+  doi     = {10.3389/fninf.2019.00014},
+}
+% notes: Citation for the Visbrain sleep-scoring module used within SleepEEGpy. Cite in Methods 3.2.
+
+@article{sleepeegpy,
+  author  = {Falach, Rotem and Belonosov, Gennadiy and Schmidig, Flavio Jean and Aderka, Maya and Zhelezniakov, Vladislav and Shani-Hershkovich, Revital and Bar, Ella and Nir, Yuval},
+  title   = {{SleepEEGpy}: a {Python}-based software integration package to organize preprocessing, analysis, and visualization of sleep {EEG} data},
+  journal = {Computers in Biology and Medicine},
+  volume  = {192},
+  pages   = {110232},
+  year    = {2025},
+  doi     = {10.1016/j.compbiomed.2025.110232},
+}
+% notes: Citation for the SleepEEGpy platform (Nir lab) used for sleep scoring and preprocessing. Cite in Methods 3.2.
+
+@article{ohayon2004metaanalysis,
+  author  = {Ohayon, Maurice M. and Carskadon, Mary A. and Guilleminault, Christian and Vitiello, Michael V.},
+  title   = {Meta-Analysis of Quantitative Sleep Parameters From Childhood to Old Age in Healthy Individuals: Developing Normative Sleep Values Across the Human Lifespan},
+  journal = {Sleep},
+  volume  = {27},
+  number  = {7},
+  pages   = {1255--1273},
+  year    = {2004},
+  doi     = {10.1093/sleep/27.7.1255},
+}
+% notes: Canonical normative reference for age-related declines in slow-wave (N3) and REM sleep. Cite in Results 4.1 as the expected-aging context for the sleep-architecture differences.
+
+@article{sharon2025slowwaves,
+  author  = {Sharon, Omer and Zhelezniakov, Vladislav and Gat, Yael and Falach, Rotem and Narbayev, Darya and Shiner, Tamara and Walker, Matthew P. and Tauman, Riva and Bregman, Noa and Nir, Yuval},
+  title   = {Slow Wave Synchrony During {NREM} Sleep Tracks Cognitive Impairment in Prodromal {Alzheimer's} Disease},
+  journal = {Alzheimer's \& Dementia},
+  year    = {2025},
+  doi     = {10.1002/alz.70247},
+}
+% notes: Source publication for the TASMC (Ichilov) high-density EEG cohort reused here (same lab, Nir). Cite in Methods 3.1 as the dataset provenance for the Tel Aviv participants.
+
+% =====================================================================
+% Sleep in general: definition, stages, PSG monitoring, EEG signatures
+% =====================================================================
+
+@article{markov2006normalsleep,
+  author  = {Markov, Dimitri and Goldman, Marina},
+  title   = {Normal Sleep and Circadian Rhythms: Neurobiologic Mechanisms Underlying Sleep and Wakefulness},
+  journal = {Psychiatric Clinics of North America},
+  volume  = {29},
+  number  = {4},
+  pages   = {841--853},
+  year    = {2006},
+  doi     = {10.1016/j.psc.2006.09.008},
+}
+% notes: Review. General account of what sleep is, how NREM and REM stages are defined and cycle across the night, and the neurobiology that generates them. Cite in the new Introduction opening paragraph as the general sleep primer requested for the thesis version.
+
+@article{silber2007visualscoring,
+  author  = {Silber, Michael H. and Ancoli-Israel, Sonia and Bonnet, Michael H. and Chokroverty, Sudhansu and Grigg-Damberger, Madeleine M. and Hirshkowitz, Max and Kapen, Sheldon and Keenan, Sharon A. and Kryger, Meir H. and Penzel, Thomas and Pressman, Mark R. and Iber, Conrad},
+  title   = {The Visual Scoring of Sleep in Adults},
+  journal = {Journal of Clinical Sleep Medicine},
+  volume  = {3},
+  number  = {2},
+  pages   = {121--131},
+  year    = {2007},
+  doi     = {10.5664/jcsm.26814},
+}
+% notes: The {AASM} sleep-scoring rules stated in a peer-reviewed journal article (used here in place of the non-DOI scoring manual). Defines the polysomnographic montage and the visual criteria for Wake/N1/N2/N3/REM, including the K-complex and spindle criteria that define N2. Cite in the Introduction for PSG and stage definitions, and in Methods 3.2 for how the recordings were scored.
+
+@article{steriade1993slowoscillation,
+  author  = {Steriade, Mircea and Nuñez, Angel and Amzica, Florin},
+  title   = {A novel slow ($<$1 {Hz}) oscillation of neocortical neurons in vivo: Depolarizing and hyperpolarizing components},
+  journal = {Journal of Neuroscience},
+  volume  = {13},
+  number  = {8},
+  pages   = {3252--3265},
+  year    = {1993},
+  doi     = {10.1523/JNEUROSCI.13-08-03252.1993},
+}
+% notes: Primary intracellular work describing the cortical slow oscillation that underlies NREM slow waves. Cite in the Introduction as the origin of the second cardinal NREM EEG signature (slow waves) alongside spindles.
+
+% =====================================================================
+% Sleep, learning and memory
+% =====================================================================
+
+@article{rasch2013memory,
+  author  = {Rasch, Björn and Born, Jan},
+  title   = {About Sleep's Role in Memory},
+  journal = {Physiological Reviews},
+  volume  = {93},
+  number  = {2},
+  pages   = {681--766},
+  year    = {2013},
+  doi     = {10.1152/physrev.00032.2012},
+}
+% notes: Authoritative review of sleep-dependent memory consolidation, including the active systems-consolidation account and the role of NREM oscillations. Cite in the Introduction as the main reference for sleep's mnemonic function.
+
+@article{klinzing2019consolidation,
+  author  = {Klinzing, Jens G. and Niethard, Niels and Born, Jan},
+  title   = {Mechanisms of systems memory consolidation during sleep},
+  journal = {Nature Neuroscience},
+  volume  = {22},
+  number  = {10},
+  pages   = {1598--1610},
+  year    = {2019},
+  doi     = {10.1038/s41593-019-0467-3},
+}
+% notes: Review updating the systems-consolidation account with the slow-oscillation/spindle/ripple hierarchy. Cite in the Introduction alongside rasch2013memory when linking spindles specifically to consolidation, and in the Discussion when arguing why the temporal organization of spindles should matter functionally.
+
+% =====================================================================
+% Sleep and aging
+% =====================================================================
+
+@article{li2018normalaging,
+  author  = {Li, Junxin and Vitiello, Michael V. and Gooneratne, Nalaka S.},
+  title   = {Sleep in Normal Aging},
+  journal = {Sleep Medicine Clinics},
+  volume  = {13},
+  number  = {1},
+  pages   = {1--11},
+  year    = {2018},
+  doi     = {10.1016/j.jsmc.2017.09.001},
+}
+% notes: Review of sleep changes in healthy aging at the level of architecture, continuity and EEG microstructure. Cite in the Introduction's sleep-and-aging paragraph together with mander2017aging and ohayon2004metaanalysis, and in Results 4.1 as expected-aging context.
+
+% =====================================================================
+% Sleep and neurodegeneration
+% =====================================================================
+
+@article{ju2014bidirectional,
+  author  = {Ju, Yo-El S. and Lucey, Brendan P. and Holtzman, David M.},
+  title   = {Sleep and {Alzheimer} disease pathology---a bidirectional relationship},
+  journal = {Nature Reviews Neurology},
+  volume  = {10},
+  number  = {2},
+  pages   = {115--119},
+  year    = {2014},
+  doi     = {10.1038/nrneurol.2013.269},
+}
+% notes: Review that frames sleep disruption as both a consequence and a driver of Alzheimer pathology. Cite in the Introduction's sleep-and-neurodegeneration paragraph as the statement of the bidirectional hypothesis.
+
+@article{xie2013clearance,
+  author  = {Xie, Lulu and Kang, Hongyi and Xu, Qiwu and Chen, Michael J. and Liao, Yonghong and Thiyagarajan, Meenakshisundaram and O'Donnell, John and Christensen, Daniel J. and Nicholson, Charles and Iliff, Jeffrey J. and Takano, Takahiro and Deane, Rashid and Nedergaard, Maiken},
+  title   = {Sleep Drives Metabolite Clearance from the Adult Brain},
+  journal = {Science},
+  volume  = {342},
+  number  = {6156},
+  pages   = {373--377},
+  year    = {2013},
+  doi     = {10.1126/science.1241224},
+}
+% notes: Primary rodent evidence that interstitial clearance of solutes, including amyloid-beta, increases during sleep. Cite in the Introduction as the mechanistic reason sleep quality is thought to matter for neurodegeneration, and in the Discussion where the glymphatic argument of grollero2026iso is discussed.
+
+@article{lucey2019nremtau,
+  author  = {Lucey, Brendan P. and McCullough, Austin and Landsness, Eric C. and Toedebusch, Cristina D. and McLeland, Jennifer S. and Zaza, Aiad M. and Fagan, Anne M. and McCue, Lena and Xiong, Chengjie and Morris, John C. and Benzinger, Tammie L. S. and Holtzman, David M.},
+  title   = {Reduced non-rapid eye movement sleep is associated with tau pathology in early {Alzheimer's} disease},
+  journal = {Science Translational Medicine},
+  volume  = {11},
+  number  = {474},
+  pages   = {eaau6550},
+  year    = {2019},
+  doi     = {10.1126/scitranslmed.aau6550},
+}
+% notes: Primary human evidence tying reduced NREM slow-wave activity to tau pathology in early Alzheimer's disease. Cite in the Introduction as the strongest demonstration that a specific NREM EEG feature indexes AD pathology, motivating the search for NREM2 markers.
+
+@article{mander2016biomarker,
+  author  = {Mander, Bryce A. and Winer, Joseph R. and Jagust, William J. and Walker, Matthew P.},
+  title   = {Sleep: A Novel Mechanistic Pathway, Biomarker, and Treatment Target in the Pathology of {Alzheimer's} Disease?},
+  journal = {Trends in Neurosciences},
+  volume  = {39},
+  number  = {8},
+  pages   = {552--566},
+  year    = {2016},
+  doi     = {10.1016/j.tins.2016.05.002},
+}
+% notes: Review making the explicit case for sleep as a mechanistic pathway, biomarker AND treatment target in AD. The clearest single statement of the premise this thesis tests, and the natural companion to mander2017aging (which covers healthy aging). Cite in the Introduction's neurodegeneration paragraph.
+
+@article{shokrikojori2018amyloid,
+  author  = {Shokri-Kojori, Ehsan and Wang, Gene-Jack and Wiers, Corinde E. and Demiral, Sukru B. and Guo, Min and Kim, Sung Won and Lindgren, Elsa and Ramirez, Veronica and Zehra, Amna and Freeman, Clara and Miller, Gregg and Manza, Peter and Srivastava, Tansha and De Santi, Susan and Tomasi, Dardo and Benveniste, Helene and Volkow, Nora D.},
+  title   = {$\beta$-Amyloid accumulation in the human brain after one night of sleep deprivation},
+  journal = {Proceedings of the National Academy of Sciences},
+  volume  = {115},
+  number  = {17},
+  pages   = {4483--4488},
+  year    = {2018},
+  doi     = {10.1073/pnas.1721694115},
+}
+% notes: Primary human PET evidence that a single night of sleep deprivation raises brain amyloid-beta burden. The human counterpart to xie2013clearance, and the strongest short-timescale demonstration that sleep loss has measurable consequences for AD-related pathology. Cite in the Introduction's neurodegeneration paragraph.
+
+@article{slutsky2024dyshomeostasis,
+  author  = {Slutsky, Inna},
+  title   = {Linking activity dyshomeostasis and sleep disturbances in {Alzheimer} disease},
+  journal = {Nature Reviews Neuroscience},
+  volume  = {25},
+  number  = {4},
+  pages   = {272--284},
+  year    = {2024},
+  doi     = {10.1038/s41583-024-00797-y},
+}
+% notes: Review proposing that failures of firing-rate homeostasis link AD pathology to sleep disruption. Provides a circuit-level account of why sleep architecture degrades in AD that is independent of, and complementary to, the neuromodulatory account. Cite in the Introduction's neurodegeneration paragraph or the Discussion.
+
+% =====================================================================
+% Alzheimer's disease, MCI and amnestic MCI: definition and diagnosis
+% =====================================================================
+
+@article{scheltens2021alzheimer,
+  author  = {Scheltens, Philip and De Strooper, Bart and Kivipelto, Miia and Holstege, Henne and Chételat, Gaël and Teunissen, Charlotte E. and Cummings, Jeffrey and van der Flier, Wiesje M.},
+  title   = {{Alzheimer's} disease},
+  journal = {The Lancet},
+  volume  = {397},
+  number  = {10284},
+  pages   = {1577--1590},
+  year    = {2021},
+  doi     = {10.1016/S0140-6736(20)32205-4},
+}
+% notes: Seminar review covering AD epidemiology, pathology, diagnosis and clinical course. Cite in the Introduction as the general AD reference before narrowing to sleep in AD (zhang2022alzheimerreview).
+
+@article{petersen1999mci,
+  author  = {Petersen, Ronald C. and Smith, Glenn E. and Waring, Stephen C. and Ivnik, Robert J. and Tangalos, Eric G. and Kokmen, Emre},
+  title   = {Mild Cognitive Impairment: Clinical Characterization and Outcome},
+  journal = {Archives of Neurology},
+  volume  = {56},
+  number  = {3},
+  pages   = {303--308},
+  year    = {1999},
+  doi     = {10.1001/archneur.56.3.303},
+}
+% notes: Primary cohort study that defined the amnestic MCI construct and its operational criteria, and reported the ~12\% annual conversion rate that made MCI a research target. Cite in the Introduction as the definition of aMCI, and in Methods 3.1 for the diagnostic entity the patient group belongs to.
+
+@article{albert2011mcicriteria,
+  author  = {Albert, Marilyn S. and DeKosky, Steven T. and Dickson, Dennis and Dubois, Bruno and Feldman, Howard H. and Fox, Nick C. and Gamst, Anthony and Holtzman, David M. and Jagust, William J. and Petersen, Ronald C. and Snyder, Peter J. and Carrillo, Maria C. and Thies, Bill and Phelps, Creighton H.},
+  title   = {The diagnosis of mild cognitive impairment due to {Alzheimer's} disease: Recommendations from the {National Institute on Aging}--{Alzheimer's Association} workgroups on diagnostic guidelines for {Alzheimer's} disease},
+  journal = {Alzheimer's \& Dementia},
+  volume  = {7},
+  number  = {3},
+  pages   = {270--279},
+  year    = {2011},
+  doi     = {10.1016/j.jalz.2011.03.008},
+}
+% notes: The NIA-AA clinical criteria for MCI, and the source of the important distinction between the MCI *syndrome* and MCI *due to AD*. Cite in the Introduction and in Methods 3.1 when stating how the MCI participants were diagnosed; also central to the C571 argument, since the criteria themselves treat AD aetiology as a separate, probabilistic judgement.
+
+@article{nasreddine2005moca,
+  author  = {Nasreddine, Ziad S. and Phillips, Natalie A. and Bédirian, Valérie and Charbonneau, Simon and Whitehead, Victor and Collin, Isabelle and Cummings, Jeffrey L. and Chertkow, Howard},
+  title   = {The {Montreal Cognitive Assessment}, {MoCA}: A Brief Screening Tool For Mild Cognitive Impairment},
+  journal = {Journal of the American Geriatrics Society},
+  volume  = {53},
+  number  = {4},
+  pages   = {695--699},
+  year    = {2005},
+  doi     = {10.1111/j.1532-5415.2005.53221.x},
+}
+% notes: Validation study for the MoCA. Required in Methods 3.1 -- the MoCA is the cognitive measure used throughout this thesis (group characterization and the ISFS-MoCA correlation in Results) and is currently cited nowhere.
+
+@article{drozario2020objectivesleep,
+  author  = {D'Rozario, Angela L. and Chapman, Julia L. and Phillips, Craig L. and Palmer, Jake R. and Hoyos, Camilla M. and Mowszowski, Loren and Duffy, Shantel L. and Marshall, Nathaniel S. and Benca, Ruth and Mander, Bryce and Grunstein, Ronald R. and Naismith, Sharon L.},
+  title   = {Objective measurement of sleep in mild cognitive impairment: A systematic review and meta-analysis},
+  journal = {Sleep Medicine Reviews},
+  volume  = {52},
+  pages   = {101308},
+  year    = {2020},
+  doi     = {10.1016/j.smrv.2020.101308},
+}
+% notes: Systematic review and meta-analysis of PSG and actigraphy findings in MCI. The direct counterpart of zhang2022alzheimerreview one disease stage earlier, and the best single summary of what is and is not established about sleep in MCI. Cite in the Introduction's sleep-in-MCI paragraph and in the Discussion when placing the null MCI result in context.
+
+% =====================================================================
+% Amnestic MCI is not simply an early stage of AD (Yuval C571)
+% =====================================================================
+
+@article{mitchell2009progression,
+  author  = {Mitchell, Alex J. and Shiri-Feshki, Mojtaba},
+  title   = {Rate of progression of mild cognitive impairment to dementia -- meta-analysis of 41 robust inception cohort studies},
+  journal = {Acta Psychiatrica Scandinavica},
+  volume  = {119},
+  number  = {4},
+  pages   = {252--265},
+  year    = {2009},
+  doi     = {10.1111/j.1600-0447.2008.01326.x},
+}
+% notes: Meta-analysis of 41 inception cohorts establishing that the cumulative proportion of MCI patients who convert to dementia is far below 100\%, and that conversion to non-AD dementias is a substantial fraction of the total. Primary evidence for the C571 point that MCI is not simply pre-AD.
+
+@article{malekahmadi2016reversion,
+  author  = {Malek-Ahmadi, Michael},
+  title   = {Reversion From Mild Cognitive Impairment to Normal Cognition: A Meta-Analysis},
+  journal = {Alzheimer Disease \& Associated Disorders},
+  volume  = {30},
+  number  = {4},
+  pages   = {324--330},
+  year    = {2016},
+  doi     = {10.1097/WAD.0000000000000145},
+}
+% notes: Meta-analysis quantifying how often MCI patients revert to normal cognition. The single most direct citation for "some will never develop AD" -- reversion is common, and higher in community than in clinic samples. Cite in both the Introduction and the Discussion (C571).
+
+@article{roberts2014reversion,
+  author  = {Roberts, Rosebud O. and Knopman, David S. and Mielke, Michelle M. and Cha, Ruth H. and Pankratz, V. Shane and Christianson, Teresa J. H. and Geda, Yonas E. and Boeve, Bradley F. and Ivnik, Robert J. and Tangalos, Eric G. and Rocca, Walter A. and Petersen, Ronald C.},
+  title   = {Higher risk of progression to dementia in mild cognitive impairment cases who revert to normal},
+  journal = {Neurology},
+  volume  = {82},
+  number  = {4},
+  pages   = {317--325},
+  year    = {2014},
+  doi     = {10.1212/WNL.0000000000000055},
+}
+% notes: Primary population-based cohort (Mayo Clinic Study of Aging) showing that MCI status fluctuates: a substantial share revert to normal cognition, though reverters remain at elevated risk. Cite with malekahmadi2016reversion to make the point that an MCI label is a state, not a fixed position on a single trajectory.
+
+@article{jicha2006neuropathologic,
+  author  = {Jicha, Gregory A. and Parisi, Joseph E. and Dickson, Dennis W. and Johnson, Kris and Cha, Ruth and Ivnik, Robert J. and Tangalos, Eric G. and Boeve, Bradley F. and Knopman, David S. and Braak, Heiko and Petersen, Ronald C.},
+  title   = {Neuropathologic Outcome of Mild Cognitive Impairment Following Progression to Clinical Dementia},
+  journal = {Archives of Neurology},
+  volume  = {63},
+  number  = {5},
+  pages   = {674--681},
+  year    = {2006},
+  doi     = {10.1001/archneur.63.5.674},
+}
+% notes: Autopsy series of MCI patients who did progress to dementia, showing that the underlying pathology is frequently *not* Alzheimer's disease -- hippocampal sclerosis, argyrophilic grain disease, Lewy body disease and vascular pathology all appear. The strongest single citation for Yuval's C571 point that aMCI patients progress to other neurodegenerative disorders.
+
+@article{ferman2013nonamnestic,
+  author  = {Ferman, Tanis J. and Smith, Glenn E. and Kantarci, Kejal and Boeve, Bradley F. and Pankratz, V. Shane and Dickson, Dennis W. and Graff-Radford, Neill R. and Wszolek, Zbigniew and Van Gerpen, Jay and Uitti, Ryan and Pedraza, Otto and Murray, Melissa E. and Aakre, Jeremiah and Parisi, Joseph and Knopman, David S. and Petersen, Ronald C.},
+  title   = {Nonamnestic mild cognitive impairment progresses to dementia with {Lewy} bodies},
+  journal = {Neurology},
+  volume  = {81},
+  number  = {23},
+  pages   = {2032--2038},
+  year    = {2013},
+  doi     = {10.1212/01.wnl.0000436942.55281.47},
+}
+% notes: Primary longitudinal evidence that MCI subtype predicts which dementia follows -- non-amnestic MCI converts preferentially to dementia with Lewy bodies while amnestic MCI converts preferentially to AD, but neither mapping is exclusive. Cite in the Introduction when defining aMCI against the other MCI subtypes, and in the Discussion for C571.
+
+% =====================================================================
+% Cyclic alternating pattern (CAP) and other infra-slow phenomena in sleep
+% =====================================================================
+
+@article{terzano2001cap,
+  author  = {Terzano, Mario Giovanni and Parrino, Liborio and Sherieri, Adriano and Chervin, Ronald and Chokroverty, Sudhansu and Guilleminault, Christian and Hirshkowitz, Max and Mahowald, Mark and Moldofsky, Harvey and Rosa, Agostino and Thomas, Robert and Walters, Arthur},
+  title   = {Atlas, rules, and recording techniques for the scoring of cyclic alternating pattern ({CAP}) in human sleep},
+  journal = {Sleep Medicine},
+  volume  = {2},
+  number  = {6},
+  pages   = {537--553},
+  year    = {2001},
+  doi     = {10.1016/S1389-9457(01)00149-6},
+}
+% notes: The consensus scoring rules that define CAP -- the ~20-40 s periodic alternation of phase A and phase B within NREM sleep. Cite in the Introduction or Discussion when introducing CAP as the long-established infra-slow marker of NREM instability, i.e. the phenomenon Yuval asked us to look up.
+
+@article{parrino2012cap,
+  author  = {Parrino, Liborio and Ferri, Raffaele and Bruni, Oliviero and Terzano, Mario G.},
+  title   = {Cyclic alternating pattern ({CAP}): The marker of sleep instability},
+  journal = {Sleep Medicine Reviews},
+  volume  = {16},
+  number  = {1},
+  pages   = {27--45},
+  year    = {2012},
+  doi     = {10.1016/j.smrv.2011.02.003},
+}
+% notes: The standard CAP review: what CAP is, its A1/A2/A3 subtypes, its relation to arousal and sleep instability, and how it changes with age and disease. Cite in the Discussion's new "broader context" paragraph as the pre-existing infra-slow account of NREM against which the ISFS should be positioned.
+
+@article{maestri2015capmci,
+  author  = {Maestri, Michelangelo and Carnicelli, Luca and Tognoni, Gloria and Di Coscio, Elisa and Giorgi, Filippo Sean and Volpi, Leda and Economou, Nicholas-Tiberio and Ktonas, Periklis and Ferri, Raffaele and Bonuccelli, Ubaldo and Bonanni, Enrica},
+  title   = {Non-rapid eye movement sleep instability in mild cognitive impairment: a pilot study},
+  journal = {Sleep Medicine},
+  volume  = {16},
+  number  = {9},
+  pages   = {1139--1145},
+  year    = {2015},
+  doi     = {10.1016/j.sleep.2015.04.027},
+}
+% notes: Primary study measuring CAP in MCI patients versus controls -- the closest existing analogue to this thesis's question, but using CAP rather than the sigma envelope. Cite in the Discussion when asking whether other infra-slow measures of NREM instability separate MCI from healthy aging where the ISFS did not.
+
+@article{zheng2026capdementia,
+  author  = {Zheng, Ying and Wu, Xinyue and Chen, Haizhen and Li, Fan and Yaffe, Kristine and Stone, Katie and Leng, Yue and Tan, Xiao},
+  title   = {Cyclic alternating pattern in sleep electroencephalography as a novel predictor of dementia: A prospective study},
+  journal = {Alzheimer's \& Dementia},
+  volume  = {22},
+  number  = {4},
+  pages   = {e71331},
+  year    = {2026},
+  doi     = {10.1002/alz.71331},
+}
+% notes: Large prospective cohort showing CAP features predict incident dementia better than conventional sleep parameters. The strongest available evidence that an infra-slow NREM measure carries prognostic information, and therefore the natural comparison point for the prognostic ambitions of the ISFS. Cite in the Discussion.
+
+@article{silvani2026cycles,
+  author  = {Silvani, Alessandro and Sicbaldi, Marcello and Mogavero, Maria Paola and Lanza, Giuseppe and Quercia, Angelica and Bruni, Oliviero and Faraguna, Ugo and Rosenzweig, Ivana and Ferri, Raffaele},
+  title   = {Sleeping in cycles within cycles: A nonlinear framework for {NREM} sleep microstructure},
+  journal = {Sleep Medicine Reviews},
+  volume  = {90},
+  pages   = {102351},
+  year    = {2026},
+  doi     = {10.1016/j.smrv.2026.102351},
+}
+% notes: Recent review that explicitly places CAP and the infra-slow sigma fluctuation in one framework of nested NREM cycles. The single most useful reference for the Discussion paragraph Yuval asked for, because it is the bridge between the CAP literature he named and the ISFS measured here.
+
+@article{vanhatalo2004infraslow,
+  author  = {Vanhatalo, S. and Palva, J. M. and Holmes, M. D. and Miller, J. W. and Voipio, J. and Kaila, K.},
+  title   = {Infraslow oscillations modulate excitability and interictal epileptic activity in the human cortex during sleep},
+  journal = {Proceedings of the National Academy of Sciences},
+  volume  = {101},
+  number  = {14},
+  pages   = {5053--5057},
+  year    = {2004},
+  doi     = {10.1073/pnas.0305375101},
+}
+% notes: Primary human full-band EEG evidence for an infra-slow (<0.1 Hz) cortical oscillation during sleep that modulates cortical excitability and epileptiform activity. Cite in the Discussion as an independent, non-sigma infra-slow phenomenon on the same timescale, and as the demonstration that infra-slow sleep rhythms have clinical consequences.
+
+@article{fultz2019coupled,
+  author  = {Fultz, Nina E. and Bonmassar, Giorgio and Setsompop, Kawin and Stickgold, Robert A. and Rosen, Bruce R. and Polimeni, Jonathan R. and Lewis, Laura D.},
+  title   = {Coupled electrophysiological, hemodynamic, and cerebrospinal fluid oscillations in human sleep},
+  journal = {Science},
+  volume  = {366},
+  number  = {6465},
+  pages   = {628--631},
+  year    = {2019},
+  doi     = {10.1126/science.aax5440},
+}
+% notes: Primary simultaneous EEG-fMRI evidence that NREM sleep carries coupled neural, haemodynamic and CSF oscillations at ~0.05 Hz. Cite in the Discussion's future-work passage, which currently invokes "the infra-slow haemodynamic fluctuations that share its timescale" with no supporting reference.
+
+@article{picchioni2011infraslow,
+  author  = {Picchioni, Dante and Horovitz, Silvina G. and Fukunaga, Masaki and Carr, Walter S. and Meltzer, Jed A. and Balkin, Thomas J. and Duyn, Jeff H. and Braun, Allen R.},
+  title   = {Infraslow {EEG} oscillations organize large-scale cortical--subcortical interactions during sleep: A combined {EEG/fMRI} study},
+  journal = {Brain Research},
+  volume  = {1374},
+  pages   = {63--72},
+  year    = {2011},
+  doi     = {10.1016/j.brainres.2010.12.035},
+}
+% notes: Primary human EEG/fMRI study showing that infra-slow (<0.1 Hz) EEG oscillations organize a cortical/subcortical dissociation of activity during sleep. Cite in the Discussion alongside fultz2019coupled when arguing that the infra-slow timescale is a general organizing principle of sleep rather than a property of the sigma band alone.
+
+@article{dash2019infraslow,
+  author  = {Dash, Michael B.},
+  title   = {Infraslow coordination of slow wave activity through altered neuronal synchrony},
+  journal = {Sleep},
+  volume  = {42},
+  number  = {12},
+  pages   = {zsz170},
+  year    = {2019},
+  doi     = {10.1093/sleep/zsz170},
+}
+% notes: Primary rodent evidence that slow-wave activity itself fluctuates on an infra-slow timescale (~40-120 s periods) coordinated across cortical sites. Important for scope honesty in the Discussion: the infra-slow organization of NREM is not specific to the sigma band, so ISFS findings should be framed as one facet of a broader infra-slow architecture.
+
+@article{parrino2025phasic,
+  author  = {Parrino, Liborio and Balella, Giulia and Bottignole, Dario and Melpignano, Andrea and Rosenzweig, Ivana and Ughetti, Giorgio and Mutti, Carlotta},
+  title   = {Phasic events, cyclic alternating pattern ({CAP}) and sleep disorders},
+  journal = {Clinical Neurophysiology},
+  volume  = {179},
+  pages   = {2111004},
+  year    = {2025},
+  doi     = {10.1016/j.clinph.2025.2111004},
+}
+% notes: Current CAP review from the Parma group, covering CAP across sleep apnea, insomnia, narcolepsy, epilepsy and the parasomnias. Critically for this thesis, it states explicitly that during NREM sleep the locus coeruleus shows infra-slow oscillatory activity whose periodicity partially overlaps that of CAP -- i.e. the CAP authorities themselves make the CAP/infra-slow/LC link. The single best citation for the Discussion paragraph connecting CAP to the ISFS.
+
+@article{bergel2026conserved,
+  author  = {Bergel, Antoine and Schmidt, Julien M. and Barrillot, Baptiste and Arthaud, Sébastien and Averty, Laetitia and Blumberg, Mark S. and Carachet, Camille and Clair, Angeline and Filchenko, Irina and Froidevaux, Chloé and Herrel, Anthony and Massot, Bertrand and Rattenborg, Niels C. and Schmidt, Markus H. and Tanter, Mickael and Ungurean, Gianina and Libourel, Paul-Antoine},
+  title   = {Sleep-dependent infraslow rhythms are evolutionarily conserved across reptiles and mammals},
+  journal = {Nature Neuroscience},
+  volume  = {29},
+  number  = {3},
+  pages   = {543--550},
+  year    = {2026},
+  doi     = {10.1038/s41593-025-02159-y},
+}
+% notes: Sourced from the Nir-lab LC-NE review's reference list (the unpublished manuscript itself is deliberately not cited). Primary comparative work showing that sleep-dependent infra-slow rhythms are conserved across reptiles and mammals. Cite in the Introduction or Discussion to establish that the infra-slow organization of sleep is a deeply conserved feature rather than a rodent curiosity -- which strengthens the case for expecting and interpreting it in humans.
+
+% =====================================================================
+% Infra-slow oscillations (ISO) of sigma/spindle power outside aging and MCI
+% (the same phenomenon as ISFS, published under the ISO naming)
+% =====================================================================
+
+@article{dimitriades2025schizophrenia,
+  author  = {Dimitriades, Maria E. and Schumacher, Eve and Arudchelvam, Janani and Fattinger, Sara and Kurth, Salome and Pugin, Fiona and Wehrle, Flavia and Jaramillo, Valeria and Volk, Carina and Leach, Sven and Buckley, Ashura and Driver, David I. and Markovic, Andjela and Rapoport, Judith L. and Tarokh, Leila and Huber, Reto and Gerstenberg, Miriam},
+  title   = {The infraslow fluctuation of sigma power during sleep in young individuals with schizophrenia},
+  journal = {Schizophrenia Research},
+  volume  = {285},
+  pages   = {295--303},
+  year    = {2025},
+  doi     = {10.1016/j.schres.2025.09.029},
+}
+% notes: The only located study applying the ISFS to a clinical population outside aging and cognitive impairment, and it is by the same group whose pipeline this thesis reproduces -- so peak frequency, bandwidth and strength are directly comparable to ours. Reports reduced ISFS strength in schizophrenia, i.e. weaker infra-slow spindle clustering. Cite in the Discussion paragraph on ISFS irrespective of aging/MCI; it is the direct answer to "do people use the same methods, do they report the same aspects".
+
+@article{osorioforero2025gatekeeper,
+  author  = {Osorio-Forero, Alejandro and Foustoukos, Georgios and Cardis, Romain and Cherrad, Najma and Devenoges, Christiane and Fernandez, Laura M. J. and Lüthi, Anita},
+  title   = {Infraslow noradrenergic locus coeruleus activity fluctuations are gatekeepers of the {NREM}--{REM} sleep cycle},
+  journal = {Nature Neuroscience},
+  volume  = {28},
+  number  = {1},
+  pages   = {84--96},
+  year    = {2025},
+  doi     = {10.1038/s41593-024-01822-0},
+}
+% notes: Current statement of the rodent locus-coeruleus account: infra-slow LC activity fluctuations gate NREM substates and the transition to REM. The mechanistic update to osorioforero2021noradrenergic, and the reference to use when the Discussion argues that the human ISFS indexes noradrenergic dynamics.
+
+@article{liu2026autism,
+  author  = {Liu, Kevin and Sun, Binbin and Wang, Bryan K. and Chen, Jonathan and Westover, M. Brandon and Tian, Fu-Ying and Sun, Haoqi and Kong, Xue-Jun},
+  title   = {An Electroencephalographic Study of Sleep Spindle and Infraslow Oscillation in Children With {Autism Spectrum Disorder}},
+  journal = {Journal of Sleep Research},
+  volume  = {35},
+  number  = {4},
+  pages   = {e70309},
+  year    = {2026},
+  doi     = {10.1111/jsr.70309},
+}
+% notes: Measures the relative power of infra-slow oscillations (0.005-0.03 Hz) in sleep EEG of 26 autistic and 27 typically developing children (1.1-5.1 y), alongside spindle density/frequency/morphology. Reports an infra-slow peak slightly below 0.02 Hz in both groups; group differences in ISO power did not survive correction, but ISO power correlated with autism severity in males over posterior and temporal regions. Cite in the Discussion paragraph on ISFS/ISO outside aging and MCI.
+
+@article{sun2026longcovid,
+  author  = {Sun, Haoqi and Dang, Rammy and Li, Peng and Xiao, Wenzhong and Scott-Sutherland, Jennifer and Sassower, Kenneth C. and Westover, M. Brandon and Felsenstein, Donna and Thomas, Robert J. and Haack, Monika and Mullington, Janet M.},
+  title   = {Facility-measured sleep electroencephalographic microstructures in long {COVID}},
+  journal = {SLEEP},
+  volume  = {49},
+  number  = {8},
+  pages   = {zsag090},
+  year    = {2026},
+  doi     = {10.1093/sleep/zsag090},
+}
+% notes: PSG study of 28 long-COVID, 19 ME/CFS and 28 matched controls that extracts infra-slow oscillation relative band power (ISO, 0.005-0.03 Hz) among its microstructure measures, and reports widespread elevated ISO power in the slow sigma band (11-13 Hz) in ME/CFS. The most explicit published instance of infra-slow-oscillation-of-sigma-power measured in a clinical population outside aging and cognitive impairment, and notably an INCREASE where the schizophrenia and aging findings are decreases. Cite in the Discussion paragraph on ISFS/ISO outside aging and MCI.
+
+% =====================================================================
+% Locus coeruleus degeneration in aging and neurodegeneration (Yuval C557)
+% =====================================================================
+
+@article{mather2016locuscoeruleus,
+  author  = {Mather, Mara and Harley, Carolyn W.},
+  title   = {The Locus Coeruleus: Essential for Maintaining Cognitive Function and the Aging Brain},
+  journal = {Trends in Cognitive Sciences},
+  volume  = {20},
+  number  = {3},
+  pages   = {214--226},
+  year    = {2016},
+  doi     = {10.1016/j.tics.2016.01.001},
+}
+% notes: Review of locus-coeruleus function, its vulnerability in aging, and the cognitive-reserve argument for why LC integrity matters. Cite in the Discussion as the framing reference for the LC-degeneration replacement of the current cholinergic/REM passage (C557).
+
+@article{braak2011stages,
+  author  = {Braak, Heiko and Thal, Dietmar R. and Ghebremedhin, Estifanos and Del Tredici, Kelly},
+  title   = {Stages of the Pathologic Process in {Alzheimer} Disease: Age Categories From 1 to 100 Years},
+  journal = {Journal of Neuropathology \& Experimental Neurology},
+  volume  = {70},
+  number  = {11},
+  pages   = {960--969},
+  year    = {2011},
+  doi     = {10.1097/NEN.0b013e318232a379},
+}
+% notes: Primary neuropathological series (2332 brains) establishing that abnormal tau appears in the locus coeruleus before the entorhinal cortex, often in young adulthood. The evidence that makes LC degeneration the earliest, not a late, event -- essential to the C557 rewrite and useful in the Introduction's neurodegeneration paragraph.
+
+@article{dahl2019rostrallc,
+  author  = {Dahl, Martin J. and Mather, Mara and Düzel, Sandra and Bodammer, Nils C. and Lindenberger, Ulman and Kühn, Simone and Werkle-Bergner, Markus},
+  title   = {Rostral locus coeruleus integrity is associated with better memory performance in older adults},
+  journal = {Nature Human Behaviour},
+  volume  = {3},
+  number  = {11},
+  pages   = {1203--1214},
+  year    = {2019},
+  doi     = {10.1038/s41562-019-0715-2},
+}
+% notes: Primary in-vivo human MRI evidence linking locus-coeruleus integrity to memory in older adults. Cite in the Discussion to close the LC argument in humans rather than leaving it entirely on rodent work.
+
+@article{osorioforero2022locuscoeruleus,
+  author  = {Osorio-Forero, Alejandro and Cherrad, Najma and Banterle, Lila and Fernandez, Laura M. J. and Lüthi, Anita},
+  title   = {When the Locus Coeruleus Speaks Up in Sleep: Recent Insights, Emerging Perspectives},
+  journal = {International Journal of Molecular Sciences},
+  volume  = {23},
+  number  = {9},
+  pages   = {5028},
+  year    = {2022},
+  doi     = {10.3390/ijms23095028},
+}
+% notes: Review dedicated to what the locus coeruleus does during sleep, including its infra-slow activity patterns and the argument that small alterations in LC function are consequential in sleep disorders. The published counterpart to the lab review Yuval offered via Noa R. (C557); usable now, and complementary rather than redundant once that one arrives.
+
+@article{luthi2025microarousals,
+  author  = {Lüthi, Anita and Nedergaard, Maiken},
+  title   = {Anything but small: Microarousals stand at the crossroad between noradrenaline signaling and key sleep functions},
+  journal = {Neuron},
+  volume  = {113},
+  number  = {4},
+  pages   = {509--523},
+  year    = {2025},
+  doi     = {10.1016/j.neuron.2024.12.009},
+}
+% notes: Review proposing an inverted-U account in which NREM benefits depend on the amplitude of infra-slow noradrenergic fluctuations, and stating that weakened noradrenergic fluctuations occur in neurodegenerative disease and with sleep aids. The most directly citable statement that neurodegeneration blunts the infra-slow noradrenergic rhythm -- central to the C557 rewrite of the Discussion mechanism paragraph.
+
+@article{hauglund2025vasomotion,
+  author  = {Hauglund, Natalie L. and Andersen, Mie and Tokarska, Klaudia and Radovanovic, Tessa and Kjaerby, Celia and Sørensen, Frederikke L. and Bojarowska, Zuzanna and Untiet, Verena and Ballestero, Sheyla B. and Kolmos, Mie G. and Weikop, Pia and Hirase, Hajime and Nedergaard, Maiken},
+  title   = {Norepinephrine-mediated slow vasomotion drives glymphatic clearance during sleep},
+  journal = {Cell},
+  volume  = {188},
+  number  = {3},
+  pages   = {606--622},
+  year    = {2025},
+  doi     = {10.1016/j.cell.2024.11.027},
+}
+% notes: Primary rodent work identifying synchronized infra-slow oscillations in norepinephrine, cerebral blood volume and CSF as the strongest predictors of glymphatic clearance during NREM, with locus-coeruleus optogenetics and a zolpidem manipulation establishing causality. The mechanistic bridge between the infra-slow noradrenergic rhythm this thesis measures indirectly and the clearance account of AD -- cite in the Discussion, including where grollero2026iso's glymphatic argument is engaged.
+
+@article{kjaerby2026neuromodulators,
+  author  = {Kjaerby, Celia and Radovanovic, Tessa and Kovács, Eszter Rebeka and Bojarowska, Zuzanna and Tokarska, Klaudia Anna and Tsopanidou, Anastasia and Nielsen, Elise Schiøler and Andersen, Mie and Li, Yulong and Weikop, Pia and Untiet, Verena and Nedergaard, Maiken},
+  title   = {Coordinated infraslow cortical oscillations of neuromodulators during {NREM} sleep},
+  journal = {iScience},
+  volume  = {29},
+  number  = {2},
+  pages   = {114554},
+  year    = {2026},
+  doi     = {10.1016/j.isci.2025.114554},
+}
+% notes: Primary fiber-photometry work showing that acetylcholine, serotonin, dopamine, histamine and norepinephrine all oscillate on a synchronized infra-slow timescale during NREM, and that silencing the locus coeruleus abolishes the NE oscillation and selectively reduces the cholinergic one. Useful in two ways: it broadens the neuromodulatory account beyond noradrenaline, and it gives a principled way to keep acetylcholine in the Discussion -- as an NREM infra-slow signal under LC control, rather than via the REM/cholinergic argument Yuval called out as out of context (C557).
+
+@article{poe2020locuscoeruleus,
+  author  = {Poe, Gina R. and Foote, Stephen and Eschenko, Oxana and Johansen, Joshua P. and Bouret, Sebastien and Aston-Jones, Gary and Harley, Carolyn W. and Manahan-Vaughan, Denise and Weinshenker, David and Valentino, Rita and Berridge, Craig and Chandler, Daniel J. and Waterhouse, Barry and Sara, Susan J.},
+  title   = {Locus coeruleus: a new look at the blue spot},
+  journal = {Nature Reviews Neuroscience},
+  volume  = {21},
+  number  = {11},
+  pages   = {644--659},
+  year    = {2020},
+  doi     = {10.1038/s41583-020-0360-9},
+}
+% notes: The standard consensus review of locus-coeruleus organization and function, authored by most of the field. Cite in the Discussion when the LC is first introduced as a structure rather than only as the pacemaker of the infra-slow rhythm.
+
+@article{matchett2021vulnerability,
+  author  = {Matchett, Billie J. and Grinberg, Lea T. and Theofilas, Panos and Murray, Melissa E.},
+  title   = {The mechanistic link between selective vulnerability of the locus coeruleus and neurodegeneration in {Alzheimer's} disease},
+  journal = {Acta Neuropathologica},
+  volume  = {141},
+  number  = {5},
+  pages   = {631--650},
+  year    = {2021},
+  doi     = {10.1007/s00401-020-02248-1},
+}
+% notes: The dedicated review of WHY the locus coeruleus is selectively vulnerable in Alzheimer's disease. The central framing citation for the C557 rewrite: it is the paper that turns "the LC degenerates" into a mechanism rather than an observation.
+
+@article{theofilas2017stereology,
+  author  = {Theofilas, Panos and Ehrenberg, Alexander J. and Dunlop, Sara and Di Lorenzo Alho, Ana T. and Nguy, Austin and Leite, Renata Elaine Paraizo and Rodriguez, Roberta Diehl and Mejia, Maria B. and Suemoto, Claudia K. and Ferretti-Rebustini, Renata Eloah De Lucena and Polichiso, Livia and Nascimento, Camila F. and Seeley, William W. and Nitrini, Ricardo and Pasqualucci, Carlos Augusto and Jacob Filho, Wilson and Rueb, Udo and Neuhaus, John and Heinsen, Helmut and Grinberg, Lea T.},
+  title   = {Locus coeruleus volume and cell population changes during {Alzheimer's} disease progression: A stereological study in human postmortem brains with potential implication for early-stage biomarker discovery},
+  journal = {Alzheimer's \& Dementia},
+  volume  = {13},
+  number  = {3},
+  pages   = {236--246},
+  year    = {2017},
+  doi     = {10.1016/j.jalz.2016.06.2362},
+}
+% notes: Primary stereological quantification of locus-coeruleus neuron loss across Braak stages in human postmortem brain. The hard numbers behind the claim that LC degeneration begins early and progresses with disease stage. Pairs with braak2011stages (which establishes the LC as the first site of tau) to make the early-and-progressive case.
+
+@article{zarow2003neuronalloss,
+  author  = {Zarow, Chris and Lyness, Scott A. and Mortimer, James A. and Chui, Helena C.},
+  title   = {Neuronal Loss Is Greater in the Locus Coeruleus Than Nucleus Basalis and Substantia Nigra in {Alzheimer} and {Parkinson} Diseases},
+  journal = {Archives of Neurology},
+  volume  = {60},
+  number  = {3},
+  pages   = {337--341},
+  year    = {2003},
+  doi     = {10.1001/archneur.60.3.337},
+}
+% notes: Primary postmortem comparison showing locus-coeruleus neuron loss EXCEEDS that of the cholinergic nucleus basalis and of the substantia nigra in both AD and PD. Directly justifies Yuval's C557 instruction to lead with LC rather than with the cholinergic basal forebrain (schmitz2018cholinergic) -- it is the quantitative reason the emphasis should shift.
+
+@article{weinshenker2018noradrenergic,
+  author  = {Weinshenker, David},
+  title   = {Long Road to Ruin: Noradrenergic Dysfunction in Neurodegenerative Disease},
+  journal = {Trends in Neurosciences},
+  volume  = {41},
+  number  = {4},
+  pages   = {211--223},
+  year    = {2018},
+  doi     = {10.1016/j.tins.2018.01.010},
+}
+% notes: Review of noradrenergic dysfunction across neurodegenerative diseases, arguing the LC is an early and causally relevant locus rather than collateral damage. Cite alongside matchett2021vulnerability in the Discussion.
+
+@article{galgani2023locuscoeruleus,
+  author  = {Galgani, Alessandro and Lombardo, Francesco and Martini, Nicola and Vergallo, Andrea and Bastiani, Luca and Hampel, Harald and Hlavata, Hana and Baldacci, Filippo and Tognoni, Gloria and De Marchi, Daniele and Ghicopulos, Irene and De Cori, Sara and Biagioni, Francesca and Busceti, Carla Letizia and Ceravolo, Roberto and Bonuccelli, Ubaldo and Chiappino, Dante and Siciliano, Gabriele and Fornai, Francesco and Pavese, Nicola and Giorgi, Filippo Sean},
+  title   = {Magnetic resonance imaging locus coeruleus abnormality in amnestic {Mild Cognitive Impairment} is associated with future progression to dementia},
+  journal = {European Journal of Neurology},
+  volume  = {30},
+  number  = {1},
+  pages   = {32--46},
+  year    = {2023},
+  doi     = {10.1111/ene.15556},
+}
+% notes: The single most useful new reference of this batch, because it serves BOTH of Yuval's comments at once. In-vivo LC MRI measured specifically in AMNESTIC MCI, where LC abnormality predicts which patients later progress to dementia. For C557 it puts LC degeneration in exactly this thesis's population; for C571 it shows that aMCI is a heterogeneous group whose members can be separated by a biological marker into progressors and non-progressors -- which is precisely the point that aMCI is not uniformly early AD.
+
+@article{vanegroo2022sleepwake,
+  author  = {Van Egroo, Maxime and Koshmanova, Ekaterina and Vandewalle, Gilles and Jacobs, Heidi I. L.},
+  title   = {Importance of the locus coeruleus-norepinephrine system in sleep-wake regulation: Implications for aging and {Alzheimer's} disease},
+  journal = {Sleep Medicine Reviews},
+  volume  = {62},
+  pages   = {101592},
+  year    = {2022},
+  doi     = {10.1016/j.smrv.2022.101592},
+}
+% notes: Review that joins the two halves of C557 explicitly -- LC-NE in sleep-wake regulation, and what its degeneration implies for aging and Alzheimer's disease. The best single citation for the replacement paragraph, and closer to the thesis's framing than any of the pure-neuropathology entries.
+
+@article{vanegroo2021awakenings,
+  author  = {Van Egroo, Maxime and van Hooren, Roy W. E. and Jacobs, Heidi I. L.},
+  title   = {Associations between locus coeruleus integrity and nocturnal awakenings in the context of {Alzheimer's} disease plasma biomarkers: a 7{T} {MRI} study},
+  journal = {Alzheimer's Research \& Therapy},
+  volume  = {13},
+  number  = {1},
+  pages   = {159},
+  year    = {2021},
+  doi     = {10.1186/s13195-021-00902-8},
+}
+% notes: Primary in-vivo human evidence linking locus-coeruleus integrity (7T MRI) to disrupted sleep continuity, in the context of AD plasma biomarkers. This is the human LC-and-sleep result the Discussion needs so the LC argument is not carried entirely by rodent work; complements dahl2019rostrallc (LC integrity and memory) with a sleep outcome.
+
+@article{teng2025synchrony,
+  author  = {Teng, Sasa and Maldonado Rodriguez, Angie N. and Wang, Ruizhi and Chen, Xinyue and Peng, Yueqing},
+  title   = {Synchrony of neuromodulatory systems during {NREM} sleep},
+  journal = {Proceedings of the National Academy of Sciences},
+  volume  = {122},
+  number  = {52},
+  pages   = {e2514202122},
+  year    = {2025},
+  doi     = {10.1073/pnas.2514202122},
+}
+% notes: Primary work showing that multiple neuromodulatory systems fluctuate in synchrony during NREM sleep. Cited by the Nir-lab review for exactly the claim that the infra-slow organization extends beyond noradrenaline; use alongside kjaerby2026neuromodulators.
